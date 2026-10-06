@@ -75,3 +75,22 @@ jobs:
         with:
           name: multilayer-windows-x64
           path: dist/*-Setup.exe
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: multilayer-*
+          merge-multiple: true
+          path: dist
+      - run: python packaging/publish_release.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
