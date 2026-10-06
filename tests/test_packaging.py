@@ -33,6 +33,36 @@ class BundleTests(unittest.TestCase):
         ):
             self.bundle["linux_licenses"]([Path("/unknown")], Path("licenses"))
 
+    def test_linux_sdl_includes_its_opengl_module_dependency(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "x86_64-linux-gnu/qemu"
+            directory.mkdir(parents=True)
+            names = ("accel-tcg-x86_64.so", "ui-opengl.so", "ui-sdl.so")
+            for name in names:
+                (directory / name).touch()
+            self.assertEqual(self.bundle["linux_modules"](root), [directory / n for n in names])
+
+    def test_missing_opengl_module_blocks_packaging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = root / "x86_64-linux-gnu/qemu"
+            directory.mkdir(parents=True)
+            for name in ("accel-tcg-x86_64.so", "ui-sdl.so"):
+                (directory / name).touch()
+            with self.assertRaisesRegex(RuntimeError, "ui-opengl.so"):
+                self.bundle["linux_modules"](root)
+
+    def test_ambiguous_module_blocks_packaging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for arch in ("arch-a", "arch-b"):
+                directory = root / arch / "qemu"
+                directory.mkdir(parents=True)
+                (directory / "accel-tcg-x86_64.so").touch()
+            with self.assertRaisesRegex(RuntimeError, "ambiguous QEMU module"):
+                self.bundle["linux_modules"](root)
+
     def test_firmware_export_includes_source_metadata(self):
         export = self.bundle["export_firmware"]
         with (

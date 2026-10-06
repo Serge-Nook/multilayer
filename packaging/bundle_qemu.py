@@ -108,6 +108,17 @@ def elf_binary(name: str) -> Path:
     return binary
 
 
+def linux_modules(library_root: Path = Path("/usr/lib")) -> list[Path]:
+    modules = []
+    # SDL's OpenGL symbols live in another QEMU module, not in an ldd dependency.
+    for name in ("accel-tcg-x86_64.so", "ui-opengl.so", "ui-sdl.so"):
+        matches = list(library_root.glob("*/qemu/" + name))
+        if len(matches) != 1:
+            raise RuntimeError("Missing or ambiguous QEMU module: " + name)
+        modules.append(matches[0])
+    return modules
+
+
 def bundle(binary: Path, target: Path, firmware: Path | None = None) -> None:
     binary = binary.resolve(strict=True)
     shutil.rmtree(target, ignore_errors=True)
@@ -150,13 +161,9 @@ def bundle(binary: Path, target: Path, firmware: Path | None = None) -> None:
         for tool in tools[1:]:
             name = "bpftool" if tool.name == "bpftool" else tool.name
             shutil.copy2(tool, target / "bin" / name)
-        modules = []
-        for name in ("accel-tcg-x86_64.so", "ui-sdl.so"):
-            matches = list(Path("/usr/lib").glob("*/qemu/" + name))
-            if len(matches) != 1:
-                raise RuntimeError("Missing or ambiguous QEMU module: " + name)
-            modules.append(matches[0])
-            shutil.copy2(matches[0], target / "modules" / name)
+        modules = linux_modules()
+        for module in modules:
+            shutil.copy2(module, target / "modules" / module.name)
         libraries = sorted({path for tool in [*tools, *modules] for path in linux_libraries(tool)})
         for library in libraries:
             shutil.copy2(library, target / "lib" / library.name)
