@@ -44,6 +44,7 @@ STATUS = {
     "paused": "Пауза",
     "prelaunch": "Подготовка",
     "shutdown": "Выключение",
+    "unreachable": "Нет связи с QEMU",
 }
 
 
@@ -246,6 +247,7 @@ class Window(QMainWindow):
             ("Пауза", lambda: self.control("pause")),
             ("Продолжить", lambda: self.control("resume")),
             ("Остановить", lambda: self.control("stop")),
+            ("Перезагрузить", lambda: self.control("reset")),
         ):
             button = QPushButton(label)
             button.clicked.connect(operation)
@@ -312,14 +314,22 @@ class Window(QMainWindow):
         self.statusBar().showMessage("Выполняется операция…")
         worker = Worker(operation)
         self.workers.add(worker)
-        worker.signals.error.connect(lambda message: QMessageBox.critical(self, "Ошибка", message))
-        if callback:
-            worker.signals.done.connect(callback)
+
+        def failed(message: str) -> None:
+            self.statusBar().showMessage("Ошибка: " + message)
+            QMessageBox.critical(self, "Ошибка", message)
+
+        def succeeded(value: Any) -> None:
+            self.statusBar().showMessage("Готово")
+            if callback:
+                callback(value)
+
+        worker.signals.error.connect(failed)
+        worker.signals.done.connect(succeeded)
 
         def complete() -> None:
             self.workers.discard(worker)
             self.busy = False
-            self.statusBar().showMessage("Готово")
             for button in self.buttons.values():
                 button.setEnabled(True)
             self.refresh()
@@ -419,6 +429,10 @@ class Window(QMainWindow):
             vm = self.selected()
             if action == "stop" and not self.confirm(
                 "Принудительно остановить ВМ? Несохранённые данные гостевой ОС могут быть потеряны."
+            ):
+                return
+            if action == "reset" and not self.confirm(
+                "Перезагрузить ВМ немедленно? Несохранённые данные гостевой ОС могут быть потеряны."
             ):
                 return
             if action == "start":

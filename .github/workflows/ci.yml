@@ -63,6 +63,16 @@ jobs:
           }
       - shell: pwsh
         run: ./packaging/build_windows.ps1
+      - shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          & .\dist\multilayer-cli\multilayer-cli.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI version check failed' }
+          & .\dist\multilayer-cli\multilayer-cli.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI help check failed' }
+          & .\dist\multilayer-cli\multilayer-cli.exe --home "$env:RUNNER_TEMP\multilayer-smoke" list
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI list check failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: multilayer-windows-x64

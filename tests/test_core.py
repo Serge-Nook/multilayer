@@ -9,6 +9,7 @@ import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import pycdlib
 
@@ -288,6 +289,54 @@ class QMPTests(unittest.TestCase):
                     qmp.execute("bad")
             thread.join(timeout=3)
             self.assertFalse(thread.is_alive())
+
+
+@unittest.skipUnless(sys.platform == "win32", "Windows named pipe test")
+class WindowsQMPTests(unittest.TestCase):
+    def test_real_named_pipe_transport(self):
+        import win32file
+        import win32pipe
+
+        endpoint = rf"\\.\pipe\multilayer-test-{uuid4()}"
+        handle = win32pipe.CreateNamedPipe(
+            endpoint,
+            win32pipe.PIPE_ACCESS_DUPLEX,
+            win32pipe.PIPE_TYPE_BYTE | win32pipe.PIPE_READMODE_BYTE | win32pipe.PIPE_WAIT,
+            1,
+            65536,
+            65536,
+            1000,
+            None,
+        )
+        self.addCleanup(handle.Close)
+        errors = []
+
+        def serve():
+            try:
+                win32pipe.ConnectNamedPipe(handle, None)
+                win32file.WriteFile(handle, b'{"QMP":{"version":{},"capabilities":[]}}\r\n')
+                buffer = b""
+                for _ in range(2):
+                    while b"\n" not in buffer:
+                        _, data = win32file.ReadFile(handle, 65536)
+                        buffer += data
+                    line, buffer = buffer.split(b"\n", 1)
+                    request = json.loads(line)
+                    win32file.WriteFile(
+                        handle,
+                        json.dumps({"id": request["id"], "return": {"status": "running"}}).encode()
+                        + b"\r\n",
+                    )
+            except Exception as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        with QMP(endpoint) as qmp:
+            self.assertEqual(qmp.execute("query-status"), {"status": "running"})
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
 
 
 class EngineGuardTests(unittest.TestCase):

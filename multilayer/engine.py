@@ -403,8 +403,26 @@ class Engine:
         if action not in commands:
             raise MultilayerError("Неизвестная команда управления")
         vm = self.store.get(identifier)
-        with self.store.lock(identifier), QMP(self.endpoint(vm)) as qmp:
-            qmp.execute(commands[action])
+        with self.store.lock(identifier):
+            try:
+                with QMP(self.endpoint(vm)) as qmp:
+                    qmp.execute(commands[action])
+            except (OSError, TimeoutError):
+                if action != "stop" or not self._alive(vm):
+                    raise
+                runtime = json.loads((self.store.path(identifier) / "runtime.json").read_text())
+                process = psutil.Process(runtime["pid"])
+                if abs(process.create_time() - runtime["created"]) > 0.01:
+                    raise MultilayerError("Процесс ВМ уже завершился") from None
+                try:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except psutil.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                except psutil.Error as exc:
+                    raise MultilayerError(f"Не удалось остановить процесс ВМ: {exc}") from exc
         if action == "stop":
             deadline = time.monotonic() + 10
             while self.status(identifier) != "stopped" and time.monotonic() < deadline:

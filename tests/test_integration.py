@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pycdlib
 
@@ -51,6 +52,12 @@ class QemuIntegration(unittest.TestCase):
         self.engine.link(self.vm.id, False)
         self.engine.link(self.vm.id, True)
         self.assertEqual(self.engine.status(self.vm.id), "running")
+
+    def test_force_stop_works_when_qmp_is_unavailable(self):
+        self.engine.start(self.vm.id, headless=True)
+        with patch("multilayer.engine.QMP", side_effect=OSError("Unavailable")):
+            self.engine.control(self.vm.id, "stop")
+        self.assertEqual(self.engine.status(self.vm.id), "stopped")
 
     def test_snapshot_restores_disk_bytes_and_clone_is_independent(self):
         image = str(self.engine.store.path(self.vm.id) / "disk.qcow2")
