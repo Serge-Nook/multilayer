@@ -64,8 +64,6 @@ jobs:
       - shell: pwsh
         run: ./packaging/build_windows.ps1
       - shell: pwsh
-        env:
-          PYTHONIOENCODING: utf-8
         run: |
           & .\dist\multilayer-cli\multilayer-cli.exe --version
           if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI version check failed' }

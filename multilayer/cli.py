@@ -121,6 +121,9 @@ def doctor() -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     arguments = parser().parse_args(argv)
     try:
         if arguments.gui or arguments.maintenance or not arguments.command:
