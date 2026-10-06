@@ -157,7 +157,7 @@ class ExecutableTests(unittest.TestCase):
                 ),
             ):
                 self.assertEqual(
-                    external_env(str(binary))["LD_LIBRARY_PATH"], str(base / "qemu/lib")
+                    external_env(str(binary))["LD_LIBRARY_PATH"], str((base / "qemu/lib").resolve())
                 )
                 self.assertEqual(
                     external_env("/usr/bin/qemu-system-x86_64")["LD_LIBRARY_PATH"], "/original"
