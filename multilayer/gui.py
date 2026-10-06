@@ -140,7 +140,7 @@ class VMDialog(QDialog):
         combo(hardware, "accelerator", "Ускорение", ("auto", "kvm", "whpx", "tcg"))
         combo(hardware, "firmware", "Прошивка", {"bios": "BIOS", "uefi": "UEFI"})
         for key, label in (
-            ("tpm", "TPM 2.0 (Linux + swtpm)"),
+            ("tpm", "TPM 2.0 (Linux, встроенный swtpm)"),
             ("secure_boot", "Secure Boot (прошивка с ключами Microsoft)"),
         ):
             field = QCheckBox(label)
@@ -226,7 +226,7 @@ class Window(QMainWindow):
         self.refreshing = False
         self.workers: set[Worker] = set()
         self.rows: list[VM] = []
-        self.setWindowTitle(f"{APP_NAME} — виртуальные машины")
+        self.setWindowTitle(f"{APP_NAME} {__version__} — виртуальные машины")
         self.resize(1100, 720)
         root = QWidget()
         self.setCentralWidget(root)
@@ -552,11 +552,11 @@ class Window(QMainWindow):
 class Maintenance(QDialog):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Мультислой — установка")
+        self.setWindowTitle(f"Мультислой {__version__} — установка")
         self.resize(460, 260)
         layout = QVBoxLayout(self)
         label = QLabel(
-            "Мультислой\nУстановить/обновить приложение или удалить его.\nВиртуальные машины и их диски сохраняются."
+            f"Мультислой {__version__}\nУстановить/обновить приложение или удалить его.\nВиртуальные машины и их диски сохраняются. Закройте окна прежней версии перед обновлением."
         )
         label.setWordWrap(True)
         layout.addWidget(label)
@@ -585,16 +585,18 @@ class Maintenance(QDialog):
         for button in self.buttons:
             button.setEnabled(False)
         self.worker = Worker(lambda: maintain(action))
-        self.worker.signals.done.connect(
-            lambda text: QMessageBox.information(self, "Установка", text)
-        )
+
+        def success(text: str) -> None:
+            QMessageBox.information(self, "Установка", text)
+            if action == "install":
+                self.accept()
+
+        self.worker.signals.done.connect(success)
         self.worker.signals.error.connect(lambda text: QMessageBox.critical(self, "Ошибка", text))
 
         def complete() -> None:
             for button in self.buttons:
                 button.setEnabled(True)
-            if action == "install":
-                self.accept()
 
         self.worker.signals.finished.connect(complete)
         QThreadPool.globalInstance().start(self.worker)

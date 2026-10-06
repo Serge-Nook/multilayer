@@ -14,7 +14,14 @@ from uuid import uuid4
 import pycdlib
 
 from multilayer.cli import main, parser
-from multilayer.engine import Engine, accelerator, executable, external_env, option_path
+from multilayer.engine import (
+    Engine,
+    accelerator,
+    executable,
+    external_env,
+    option_path,
+    whpx_available,
+)
 from multilayer.maintenance import install_appimage, uninstall_appimage
 from multilayer.model import VM, MultilayerError
 from multilayer.network import local_networks, network_arguments, policy_command, verify_policy
@@ -77,10 +84,18 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(main(["--home", root, "delete", VM(name="Test").id]), 1)
 
     def test_accelerators_are_host_specific(self):
-        with patch("multilayer.engine.sys.platform", "win32"):
+        with (
+            patch("multilayer.engine.sys.platform", "win32"),
+            patch("multilayer.engine.whpx_available", return_value=True),
+        ):
             self.assertEqual(accelerator(VM(name="Test")), "whpx")
             with self.assertRaises(MultilayerError):
                 accelerator(VM(name="Test", accelerator="kvm"))
+        with (
+            patch("multilayer.engine.sys.platform", "win32"),
+            patch("multilayer.engine.whpx_available", return_value=False),
+        ):
+            self.assertEqual(accelerator(VM(name="Test")), "tcg")
         with (
             patch("multilayer.engine.sys.platform", "linux"),
             patch("os.access", return_value=False),
@@ -101,21 +116,25 @@ class ModelTests(unittest.TestCase):
 
 
 class ExecutableTests(unittest.TestCase):
-    def test_bundled_qemu_img_precedes_host_on_both_platforms(self):
+    def test_bundled_runtime_precedes_host_on_both_platforms(self):
         for platform, suffix in (("linux", ""), ("win32", ".exe")):
-            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
-                base = Path(temporary)
-                (base / "qemu/bin").mkdir(parents=True)
-                binary = base / "qemu/bin" / ("qemu-img" + suffix)
-                binary.write_bytes(b"bundled")
+            for name in ("qemu-img", "qemu-system-x86_64"):
                 with (
-                    patch.object(sys, "frozen", True, create=True),
-                    patch.object(sys, "_MEIPASS", str(base), create=True),
-                    patch.object(sys, "platform", platform),
-                    patch("shutil.which") as which,
+                    self.subTest(platform=platform, name=name),
+                    tempfile.TemporaryDirectory() as temporary,
                 ):
-                    self.assertEqual(executable("qemu-img"), str(binary.resolve()))
-                    which.assert_not_called()
+                    base = Path(temporary)
+                    (base / "qemu/bin").mkdir(parents=True)
+                    binary = base / "qemu/bin" / (name + suffix)
+                    binary.write_bytes(b"bundled")
+                    with (
+                        patch.object(sys, "frozen", True, create=True),
+                        patch.object(sys, "_MEIPASS", str(base), create=True),
+                        patch.object(sys, "platform", platform),
+                        patch("shutil.which") as which,
+                    ):
+                        self.assertEqual(executable(name), str(binary.resolve()))
+                        which.assert_not_called()
 
     def test_source_run_uses_host_tool(self):
         with (
@@ -131,7 +150,7 @@ class ExecutableTests(unittest.TestCase):
             patch("shutil.which", side_effect=[None, "/usr/bin/qemu-img"]) as which,
         ):
             self.assertEqual(executable("qemu-img"), str(Path("/usr/bin/qemu-img").resolve()))
-            which.assert_called_with("qemu-img", path="/usr/local/bin:/usr/bin:/bin")
+            which.assert_called_with("qemu-img", path="/usr/local/bin:/usr/bin:/bin:/usr/sbin")
 
     def test_missing_tool_still_reports_error(self):
         with (
@@ -141,6 +160,16 @@ class ExecutableTests(unittest.TestCase):
             self.assertRaisesRegex(MultilayerError, "Не найден qemu-img"),
         ):
             executable("qemu-img")
+
+    def test_incomplete_frozen_runtime_requires_reinstall(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch.object(sys, "frozen", True, create=True),
+                patch.object(sys, "_MEIPASS", temporary, create=True),
+                patch.object(sys, "platform", "linux"),
+                self.assertRaisesRegex(MultilayerError, "переустановите свежий дистрибутив"),
+            ):
+                executable("qemu-img")
 
     def test_bundled_library_path_does_not_leak_to_system_qemu(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -163,6 +192,17 @@ class ExecutableTests(unittest.TestCase):
                     external_env("/usr/bin/qemu-system-x86_64")["LD_LIBRARY_PATH"], "/original"
                 )
                 self.assertEqual(os.environ["LD_LIBRARY_PATH"], "/qt")
+
+    def test_whpx_capability_detection(self):
+        class Query:
+            def __call__(self, code, output, size, written):
+                output._obj.value = 1
+                return 0
+
+        query = Query()
+        library = type("Library", (), {"WHvGetCapability": query})()
+        with patch("ctypes.WinDLL", return_value=library, create=True):
+            self.assertTrue(whpx_available())
 
 
 class StoreTests(unittest.TestCase):
@@ -254,14 +294,21 @@ class NetworkTests(unittest.TestCase):
 
     def test_failed_bpf_verification_blocks_launch(self):
         result = type("Result", (), {"stdout": "[]"})()
-        with patch("subprocess.run", return_value=result), self.assertRaises(MultilayerError):
+        with (
+            patch("multilayer.network.executable", return_value="/usr/bin/bpftool"),
+            patch("subprocess.run", return_value=result),
+            self.assertRaises(MultilayerError),
+        ):
             verify_policy("test.service")
 
     def test_both_bpf_directions_required(self):
         result = type(
             "Result", (), {"stdout": '[{"attach_type":"ingress"},{"attach_type":"egress"}]'}
         )()
-        with patch("subprocess.run", return_value=result):
+        with (
+            patch("multilayer.network.executable", return_value="/usr/bin/bpftool"),
+            patch("subprocess.run", return_value=result),
+        ):
             verify_policy("test.service")
 
 

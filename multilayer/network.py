@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from multilayer.model import VM, MultilayerError
+from multilayer.runtime import bundled_executable, executable, external_env
 
 PRIVATE = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"]
 LOCAL = [
@@ -28,12 +29,14 @@ def local_networks(vm: VM) -> list[str]:
             networks.add(str(ipaddress.ip_network(cidr, strict=False)))
         except ValueError as exc:
             raise MultilayerError(f"Некорректная LAN подсеть: {cidr}") from exc
-    ip = shutil.which("ip")
-    if not ip:
-        raise MultilayerError("Для определения локальных подсетей установите iproute2")
+    ip = executable("ip")
     try:
         result = subprocess.run(
-            [ip, "-j", "address", "show"], check=True, capture_output=True, text=True
+            [ip, "-j", "address", "show"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=external_env(ip),
         )
         for interface in json.loads(result.stdout):
             for address in interface.get("addr_info", []):
@@ -72,7 +75,8 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
         return command, None
     if sys.platform != "linux" or not Path("/sys/fs/cgroup/cgroup.controllers").is_file():
         raise MultilayerError("Сетевые политики требуют Linux с systemd и cgroup v2")
-    binaries = {name: shutil.which(name) for name in ("systemd-run", "bpftool", "pkexec")}
+    binaries = {name: shutil.which(name) for name in ("systemd-run", "pkexec")}
+    binaries["bpftool"] = executable("bpftool")
     if not all(binaries.values()) or not Path("/run/systemd/system").is_dir():
         raise MultilayerError("Сетевые политики требуют systemd, bpftool и polkit (pkexec)")
     networks = local_networks(vm)
@@ -110,6 +114,9 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
     for name in ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "XDG_RUNTIME_DIR"):
         if value := os.environ.get(name):
             environment.append(f"--setenv={name}={value}")
+    for name, value in external_env(command[0]).items():
+        if name in ("LD_LIBRARY_PATH", "QEMU_MODULE_DIR"):
+            environment.append(f"--setenv={name}={value}")
     return [
         str(binaries["pkexec"]),
         str(binaries["systemd-run"]),
@@ -125,10 +132,16 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
 
 def verify_policy(unit: str) -> None:
     try:
+        bpftool = executable("bpftool")
+        command = [str(shutil.which("pkexec"))]
+        if bundled_executable("bpftool"):
+            command.extend(
+                [executable("env"), "LD_LIBRARY_PATH=" + external_env(bpftool)["LD_LIBRARY_PATH"]]
+            )
+        command.append(bpftool)
         result = subprocess.run(
             [
-                str(shutil.which("pkexec")),
-                str(shutil.which("bpftool")),
+                *command,
                 "-j",
                 "cgroup",
                 "show",

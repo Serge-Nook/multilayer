@@ -103,7 +103,15 @@ def parser() -> argparse.ArgumentParser:
 
 def doctor() -> dict:
     dependencies: dict[str, str | None] = {}
-    for name in ("qemu-system-x86_64", "qemu-img", "swtpm", "systemd-run", "bpftool", "pkexec"):
+    for name in (
+        "qemu-system-x86_64",
+        "qemu-img",
+        "swtpm",
+        "ip",
+        "systemd-run",
+        "bpftool",
+        "pkexec",
+    ):
         try:
             dependencies[name] = executable(name)
         except MultilayerError:

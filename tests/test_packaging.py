@@ -1,15 +1,64 @@
+import json
 import runpy
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class BundleTests(unittest.TestCase):
     def setUp(self):
-        self.libraries = runpy.run_path(
-            str(Path(__file__).resolve().parents[1] / "packaging/bundle_qemu_img.py")
-        )["linux_libraries"]
+        self.bundle = runpy.run_path(
+            str(Path(__file__).resolve().parents[1] / "packaging/bundle_qemu.py")
+        )
+        self.libraries = self.bundle["linux_libraries"]
+
+    def test_merged_usr_package_path_is_checked(self):
+        responses = [subprocess.CompletedProcess([], 1, "") for _ in range(3)]
+        responses.append(subprocess.CompletedProcess([], 0, "iproute2: /bin/ip\n"))
+        with (
+            patch("subprocess.run", side_effect=responses),
+            patch("subprocess.check_output", return_value="iproute2 5.15.0"),
+            patch("shutil.copy2") as copy,
+        ):
+            sources = self.bundle["linux_licenses"]([Path("/usr/bin/ip")], Path("licenses"))
+            self.assertEqual(sources, {"iproute2": "5.15.0"})
+            copy.assert_called_once()
+
+    def test_unknown_package_blocks_packaging(self):
+        with (
+            patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "")),
+            self.assertRaisesRegex(RuntimeError, "Cannot identify the package"),
+        ):
+            self.bundle["linux_licenses"]([Path("/unknown")], Path("licenses"))
+
+    def test_firmware_export_includes_source_metadata(self):
+        export = self.bundle["export_firmware"]
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.dict(
+                export.__globals__,
+                {
+                    "copy_tree": Mock(return_value=[]),
+                    "linux_licenses": Mock(return_value={"edk2": "version"}),
+                },
+            ),
+        ):
+            target = Path(temporary) / "firmware"
+            export(target)
+            self.assertEqual(
+                json.loads((target / "licenses/sources.json").read_text()), {"edk2": "version"}
+            )
+
+    def test_runtime_tree_retains_nested_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            (source / "nested").mkdir(parents=True)
+            (source / "nested/firmware.fd").write_bytes(b"firmware")
+            target = Path(temporary) / "target"
+            self.bundle["copy_tree"](source, target)
+            self.assertEqual((target / "nested/firmware.fd").read_bytes(), b"firmware")
 
     def test_collects_transitive_libraries_but_not_host_glibc(self):
         output = """

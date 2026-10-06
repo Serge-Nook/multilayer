@@ -1,3 +1,4 @@
+import ctypes
 import json
 import os
 import re
@@ -13,39 +14,9 @@ import psutil
 from multilayer.model import VM, MultilayerError
 from multilayer.network import network_arguments, policy_command, verify_policy
 from multilayer.qmp import QMP
+from multilayer.runtime import bundled_executable, bundled_root, executable, external_env
 from multilayer.sharing import folder_iso
 from multilayer.store import Store, write_json
-
-
-def bundled_executable(name: str) -> Path | None:
-    if name == "qemu-img" and getattr(sys, "frozen", False):
-        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
-        candidate = base / "qemu" / "bin" / (name + (".exe" if sys.platform == "win32" else ""))
-        if candidate.is_file():
-            return candidate.resolve()
-    return None
-
-
-def executable(name: str) -> str:
-    if bundled := bundled_executable(name):
-        return str(bundled)
-    found = shutil.which(name)
-    if not found and sys.platform == "linux":
-        found = shutil.which(name, path="/usr/local/bin:/usr/bin:/bin")
-    if not found and sys.platform == "win32":
-        for directory in (
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "qemu",
-            Path(sys.executable).parent / "qemu",
-        ):
-            candidate = directory / (name + ".exe")
-            if candidate.is_file():
-                found = str(candidate)
-                break
-    if not found:
-        raise MultilayerError(
-            f"Не найден {name}. Установите QEMU/зависимости и добавьте их в PATH."
-        )
-    return str(Path(found).resolve())
 
 
 def run(arguments: list[str], timeout: int = 120) -> str:
@@ -67,17 +38,20 @@ def option_path(path: Path | str) -> str:
     return str(path).replace(",", ",,")
 
 
-def external_env(program: str | None = None) -> dict[str, str]:
-    env = dict(os.environ)
-    if getattr(sys, "frozen", False):
-        if original := env.get("LD_LIBRARY_PATH_ORIG"):
-            env["LD_LIBRARY_PATH"] = original
-        else:
-            env.pop("LD_LIBRARY_PATH", None)
-        bundled = bundled_executable("qemu-img")
-        if sys.platform == "linux" and bundled and program and Path(program).resolve() == bundled:
-            env["LD_LIBRARY_PATH"] = str(bundled.parent.parent / "lib")
-    return env
+def whpx_available() -> bool:
+    try:
+        loader = getattr(ctypes, "WinDLL")  # noqa: B009
+        library = loader("WinHvPlatform.dll", winmode=0x800)
+        query = library.WHvGetCapability
+        query.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+        query.restype = ctypes.c_int32
+        present = ctypes.c_int32()
+        written = ctypes.c_uint32()
+        return query(
+            0, ctypes.byref(present), ctypes.sizeof(present), ctypes.byref(written)
+        ) == 0 and bool(present.value)
+    except (OSError, AttributeError):
+        return False
 
 
 def accelerator(vm: VM) -> str:
@@ -89,13 +63,17 @@ def accelerator(vm: VM) -> str:
         return vm.accelerator
     if sys.platform == "linux" and os.access("/dev/kvm", os.R_OK | os.W_OK):
         return "kvm"
-    return "whpx" if sys.platform == "win32" else "tcg"
+    return "whpx" if sys.platform == "win32" and whpx_available() else "tcg"
 
 
 def find_firmware(vm: VM) -> tuple[Path, Path]:
     if vm.firmware_code and vm.firmware_vars:
         return Path(vm.firmware_code), Path(vm.firmware_vars)
-    bases = [Path("/usr/share/OVMF"), Path("/usr/share/edk2/x64"), Path("/usr/share/edk2/ovmf")]
+    bases = [root / "uefi"] if (root := bundled_root()) else []
+    if not getattr(sys, "frozen", False):
+        bases.extend(
+            [Path("/usr/share/OVMF"), Path("/usr/share/edk2/x64"), Path("/usr/share/edk2/ovmf")]
+        )
     if sys.platform == "win32":
         bases.append(Path(executable("qemu-system-x86_64")).parent / "share")
     pairs = (
@@ -111,7 +89,7 @@ def find_firmware(vm: VM) -> tuple[Path, Path]:
             if (base / code).is_file() and (base / variables).is_file():
                 return base / code, base / variables
     raise MultilayerError(
-        "Не найдена пара UEFI CODE/VARS. Установите OVMF или укажите оба файла прошивки. Для Secure Boot используйте прошивку с ключами Microsoft."
+        "Не найдена пара UEFI CODE/VARS. Переустановите полный дистрибутив или укажите оба файла прошивки вручную."
     )
 
 
@@ -228,8 +206,10 @@ class Engine:
             "-serial",
             f"file:{directory / 'serial.log'}",
             "-display",
-            "none" if headless else "sdl" if sys.platform == "win32" else "gtk",
+            "none" if headless else "sdl" if sys.platform == "win32" or bundled_root() else "gtk",
         ]
+        if bundled_executable("qemu-system-x86_64") and (root := bundled_root()):
+            args.extend(["-L", str(root / "share")])
         endpoint = self.endpoint(vm)
         if sys.platform == "win32":
             args.extend(
@@ -315,7 +295,7 @@ class Engine:
                 ],
                 stdout=log,
                 stderr=log,
-                env=external_env(),
+                env=external_env(executable("swtpm")),
             )
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -334,6 +314,7 @@ class Engine:
             self.require_stopped(vm)
             vm.validate()
             command = self.command(vm, headless)
+            environment = external_env(command[0])
             command, unit = policy_command(vm, command, self.store.path(vm.id))
             tpm = self._prepare(vm)
             directory = self.store.path(vm.id)
@@ -347,7 +328,7 @@ class Engine:
                         stdout=log,
                         stderr=log,
                         start_new_session=sys.platform != "win32",
-                        env=external_env(),
+                        env=environment,
                     )
                 if unit:
                     try:
