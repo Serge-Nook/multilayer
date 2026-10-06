@@ -65,11 +65,11 @@ KVM — компонент ядра Linux, его нельзя включить 
 sudo pacman -S qemu-desktop qemu-img edk2-ovmf swtpm
 # Для отдельных политик сети:
 sudo pacman -S bpf polkit iproute2
-chmod +x Multilayer-0.1.0-x86_64.AppImage
-./Multilayer-0.1.0-x86_64.AppImage
+chmod +x Multilayer-0.1.1-x86_64.AppImage
+./Multilayer-0.1.1-x86_64.AppImage
 ```
 
-Первый запуск показывает **«Установить/обновить — Удалить — Выйти»**. Установка без root копирует AppImage в `~/.local/opt/multilayer` и добавляет пункт меню. Для обновления скачайте новый AppImage и выберите установку/обновление. Для запуска без меню: `./Multilayer-0.1.0-x86_64.AppImage --gui`. При отсутствии FUSE: `--appimage-extract-and-run --gui`. AppImage содержит приложение/Qt, **не содержит ядро KVM, QEMU, OVMF или swtpm**.
+Первый запуск показывает **«Установить/обновить — Удалить — Выйти»**. Установка без root копирует AppImage в `~/.local/opt/multilayer` и добавляет пункт меню. Для обновления скачайте новый AppImage и выберите установку/обновление. Для запуска без меню: `./Multilayer-0.1.1-x86_64.AppImage --gui`. При отсутствии FUSE: `--appimage-extract-and-run --gui`. AppImage содержит приложение/Qt, **не содержит ядро KVM, QEMU, OVMF или swtpm**.
 
 ### Debian 12+ / Ubuntu 22.04+ — DEB
 
@@ -85,7 +85,7 @@ DEB открывается системным менеджером пакето�
 
 ### Windows 10/11 — EXE
 
-Запустите `Multilayer-0.1.0-Setup.exe`, выберите **«Установить/обновить — Удалить — Выйти»**. Приложение устанавливается для текущего пользователя, без удаления данных ВМ. GUI: ярлык «Мультислой». CLI: `%LOCALAPPDATA%\Programs\Multilayer\cli\multilayer-cli.exe`.
+Запустите `Multilayer-0.1.1-Setup.exe`, выберите **«Установить/обновить — Удалить — Выйти»**. Приложение устанавливается для текущего пользователя, без удаления данных ВМ. GUI: ярлык «Мультислой». CLI: `%LOCALAPPDATA%\Programs\Multilayer\cli\multilayer-cli.exe`.
 
 Отдельно установите [QEMU для Windows](https://www.qemu.org/download/#windows) (обычно `C:\Program Files\qemu`) и включите Windows Hypervisor Platform средствами Windows. QEMU с SDL нужен для консоли; headless-запуск работает без SDL. Установщик не скачивает исполняемые файлы и не включает системные компоненты без согласия пользователя. Для UEFI укажите совместимую пару CODE/VARS вручную, если пакет QEMU не содержит OVMF. Ограничения TPM и сети см. в таблице выше. Нативное WHPX/GUI-тестирование требует Windows-машины; успешная сборка EXE сама по себе не доказывает запуск ВМ.
 
