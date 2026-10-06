@@ -165,6 +165,23 @@ class NetworkTests(unittest.TestCase):
             policy_command(VM(name="Test", network="nat"), command, Path(".")), (command, None)
         )
 
+    @unittest.skipIf(sys.platform == "win32", "Linux systemd policy")
+    def test_policy_uses_valid_systemd_properties(self):
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("pathlib.Path.is_file", return_value=True),
+            patch("pathlib.Path.is_dir", return_value=True),
+            patch("shutil.which", side_effect=lambda name: "/usr/bin/" + name),
+            patch("multilayer.network.local_networks", return_value=["127.0.0.0/8"]),
+        ):
+            for network in ("internet", "lan"):
+                command, unit = policy_command(
+                    VM(name="Test", network=network), ["qemu", "-S"], Path(temporary)
+                )
+                self.assertIn("--property=IPAccounting=yes", command)
+                self.assertTrue(unit.endswith(".service"))
+                self.assertEqual(command[-2:], ["qemu", "-S"])
+
     def test_explicit_cidrs_validated(self):
         with self.assertRaises(MultilayerError):
             local_networks(VM(name="Test", lan_cidrs=["not a subnet"]))

@@ -134,4 +134,4 @@ python -m multilayer --gui
 
 Интеграционные тесты используют QEMU/TCG, реальное QMP-управление, загрузку минимального bootable ISO, снимки с проверкой байтов диска, клонирование, UEFI/TPM и подключение диска обмена. Не требуют скачивания ОС, root или `/dev/kvm`. Они **не заменяют** установку гостевых ОС и проверку firewall на реальной системе.
 
-Сборка Linux: `bash packaging/build_linux.sh`. Для AppImage задайте `APPIMAGETOOL=/path/appimagetool-x86_64.AppImage` (официальный appimagetool 1.9.0). Сборка Windows на Windows с Inno Setup 6: `./packaging/build_windows.ps1`. Оба скрипта используют PyInstaller, GUI не нужен во время сборки.
+Сборка Linux: `bash packaging/build_linux.sh`; нужны `dpkg-deb`, `desktop-file-utils` и библиотеки Qt/XCB (список в Linux job CI). Для AppImage задайте `APPIMAGETOOL=/path/appimagetool-x86_64.AppImage` (официальный appimagetool 1.9.0). Сборка Windows на Windows с Inno Setup 6: `./packaging/build_windows.ps1`. Оба скрипта используют PyInstaller, GUI не нужен во время сборки.

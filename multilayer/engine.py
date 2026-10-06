@@ -103,6 +103,7 @@ class Engine:
     def __init__(self, store: Store | None = None):
         self.store = store or Store()
         self.children: dict[str, subprocess.Popen] = {}
+        self.tpm_children: dict[str, subprocess.Popen] = {}
 
     def endpoint(self, vm: VM) -> str:
         if sys.platform == "win32":
@@ -118,13 +119,19 @@ class Engine:
             with QMP(self.endpoint(vm), timeout=0.5) as qmp:
                 return qmp.execute("query-status")["status"]
         except (OSError, ValueError, MultilayerError, TimeoutError):
-            return "unreachable" if self._alive(vm) else "stopped"
+            if self._alive(vm):
+                return "unreachable"
+            return "shutdown" if self._alive(vm, tpm=True) else "stopped"
 
-    def _alive(self, vm: VM) -> bool:
+    def _alive(self, vm: VM, tpm: bool = False) -> bool:
         try:
             runtime = json.loads((self.store.path(vm.id) / "runtime.json").read_text())
-            process = psutil.Process(runtime["pid"])
-            if abs(process.create_time() - runtime["created"]) > 0.01:
+            prefix = "tpm_" if tpm else ""
+            pid = runtime.get(prefix + "pid")
+            if pid is None:
+                return False
+            process = psutil.Process(pid)
+            if abs(process.create_time() - runtime[prefix + "created"]) > 0.01:
                 return False
             return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
         except (OSError, ValueError, KeyError, psutil.NoSuchProcess):
@@ -306,8 +313,8 @@ class Engine:
         raise MultilayerError("Не удалось запустить TPM; смотрите swtpm.log")
 
     def start(self, identifier: str, headless: bool = False) -> str:
-        vm = self.store.get(identifier)
         with self.store.lock(identifier):
+            vm = self.store.get(identifier)
             self.require_stopped(vm)
             vm.validate()
             command = self.command(vm, headless)
@@ -349,6 +356,8 @@ class Engine:
                         "created": psutil.Process(pid).create_time(),
                         "unit": unit,
                         "accelerator": accelerator(vm),
+                        "tpm_pid": tpm.pid if tpm else None,
+                        "tpm_created": psutil.Process(tpm.pid).create_time() if tpm else None,
                     },
                 )
                 deadline = time.monotonic() + 15
@@ -367,6 +376,8 @@ class Engine:
                             raise MultilayerError("QEMU не запущен:\n" + tail) from None
                         time.sleep(0.1)
                 self.children[vm.id] = process
+                if tpm:
+                    self.tpm_children[vm.id] = tpm
                 return accelerator(vm)
             except Exception:
                 try:
@@ -403,6 +414,13 @@ class Engine:
                     child.wait(timeout=5)
                 except subprocess.TimeoutExpired as exc:
                     raise MultilayerError("QEMU ещё завершает работу") from exc
+            if tpm := self.tpm_children.pop(identifier, None):
+                try:
+                    tpm.wait(timeout=5)
+                except subprocess.TimeoutExpired as exc:
+                    raise MultilayerError("TPM ещё сохраняет состояние") from exc
+            if self.status(identifier) != "stopped":
+                raise MultilayerError("ВМ ещё завершает работу")
 
     def link(self, identifier: str, enabled: bool) -> None:
         vm = self.store.get(identifier)
@@ -419,10 +437,11 @@ class Engine:
         self.store.remove(identifier)
 
     def clone(self, identifier: str, name: str) -> VM:
-        source = self.store.get(identifier)
         with self.store.lock(identifier):
+            source = self.store.get(identifier)
             self.require_stopped(source)
             target = VM(**{**source.to_dict(), "id": str(uuid4()), "name": name})
+            target.validate()
             directory = self.store.path(target.id)
             directory.mkdir(mode=0o700)
             try:
@@ -450,8 +469,8 @@ class Engine:
                 raise
 
     def snapshot(self, identifier: str, action: str, name: str = "") -> list[dict]:
-        vm = self.store.get(identifier)
         with self.store.lock(identifier):
+            vm = self.store.get(identifier)
             self.require_stopped(vm)
             directory = self.store.path(identifier)
             image = str(directory / "disk.qcow2")

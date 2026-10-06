@@ -83,7 +83,7 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
         "--property=NoNewPrivileges=yes",
         "--property=KillMode=control-group",
         "--property=UMask=0077",
-        "--property=IPAddressAccounting=yes",
+        "--property=IPAccounting=yes",
     ]
     if vm.network == "internet":
         properties.append("--property=IPAddressDeny=" + " ".join(networks))

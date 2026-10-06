@@ -18,7 +18,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: Горшков Сергей Владимирович <nookbat@gmail.com>
 Homepage: https://nookbat.ru
-Depends: libc6 (>= 2.35), libegl1, libgl1, libxkbcommon0, libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-render-util0, libxcb-xinerama0, libxcb-xkb1, libdbus-1-3, qemu-system-x86 (>= 1:6.2), qemu-system-gui, qemu-utils
+Depends: libc6 (>= 2.35), libegl1, libgl1, libxkbcommon0, libxkbcommon-x11-0, libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-render-util0, libxcb-xinerama0, libxcb-xkb1, libxcb-shape0, libdbus-1-3, qemu-system-x86 (>= 1:6.2), qemu-system-gui, qemu-utils
 Recommends: ovmf, swtpm, bpftool, pkexec, iproute2
 Description: Мультислой — локальные виртуальные машины QEMU/KVM
  GUI и CLI, ISO, QCOW2, снимки дисков и управление сетью.
