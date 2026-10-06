@@ -26,9 +26,9 @@ def api(url: str, method: str = "GET", data: bytes | dict | None = None) -> dict
 
 def main(directory: Path = Path("dist")) -> None:
     tag = os.environ["GITHUB_REF_NAME"]
-    version = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())[
-        "project"
-    ]["version"]
+    version = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
     if os.environ["GITHUB_REF_TYPE"] != "tag" or tag != "v" + version:
         raise ValueError("Release tag must match the application version")
     files = []

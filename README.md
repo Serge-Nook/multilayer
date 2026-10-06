@@ -74,7 +74,7 @@ chmod +x Multilayer-0.1.0-x86_64.AppImage
 ### Debian 12+ / Ubuntu 22.04+ — DEB
 
 ```sh
-sudo apt install ./multilayer_0.1.0_amd64.deb
+sudo apt install ./multilayer_0.1.1_amd64.deb
 multilayer --gui
 multilayer --maintenance
 ```
