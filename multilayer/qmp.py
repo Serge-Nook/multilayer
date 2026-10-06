@@ -15,7 +15,7 @@ class QMP:
         self.sock: socket.socket | None = None
         self.pipe: Any = None
         try:
-            if sys.platform == "win32":
+            if sys.platform == "win32" and endpoint.startswith("\\\\.\\pipe\\"):
                 import win32file
                 import win32pipe
 

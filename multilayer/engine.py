@@ -101,8 +101,9 @@ class Engine:
 
     def endpoint(self, vm: VM) -> str:
         if sys.platform == "win32":
-            return rf"\\.\pipe\multilayer-{vm.id}"
-        path = str(self.store.path(vm.id) / "qmp.sock")
+            path = str(self.store.root / ("q-" + vm.id.replace("-", "") + ".sock"))
+        else:
+            path = str(self.store.path(vm.id) / "qmp.sock")
         if len(path.encode()) > 100:
             raise MultilayerError("Путь данных слишком длинный для сокета QMP (максимум 100 байт)")
         return path
@@ -211,17 +212,7 @@ class Engine:
         if bundled_executable("qemu-system-x86_64") and (root := bundled_root()):
             args.extend(["-L", str(root / "share")])
         endpoint = self.endpoint(vm)
-        if sys.platform == "win32":
-            args.extend(
-                [
-                    "-chardev",
-                    f"pipe,id=qmp,path=multilayer-{vm.id}",
-                    "-mon",
-                    "chardev=qmp,mode=control",
-                ]
-            )
-        else:
-            args.extend(["-qmp", f"unix:{option_path(endpoint)},server=on,wait=off"])
+        args.extend(["-qmp", f"unix:{option_path(endpoint)},server=on,wait=off"])
         args.extend(network_arguments(vm))
         for number, image in enumerate(
             (vm.iso, vm.drivers_iso, str(directory / "share.iso") if vm.shared_folder else "")
@@ -318,8 +309,7 @@ class Engine:
             command, unit = policy_command(vm, command, self.store.path(vm.id))
             tpm = self._prepare(vm)
             directory = self.store.path(vm.id)
-            if sys.platform != "win32":
-                Path(self.endpoint(vm)).unlink(missing_ok=True)
+            Path(self.endpoint(vm)).unlink(missing_ok=True)
             process = None
             try:
                 with (directory / "qemu.log").open("ab") as log:
@@ -365,12 +355,14 @@ class Engine:
                                 verify_policy(unit)
                             qmp.execute("cont")
                         break
-                    except (OSError, TimeoutError):
+                    except (OSError, TimeoutError) as exc:
                         if time.monotonic() >= deadline or (
                             not unit and process.poll() is not None
                         ):
                             tail = (directory / "qemu.log").read_text(errors="replace")[-2000:]
-                            raise MultilayerError("QEMU не запущен:\n" + tail) from None
+                            raise MultilayerError(
+                                "QEMU не запущен:\n" + tail + "\nQMP: " + str(exc)
+                            ) from None
                         time.sleep(0.1)
                 self.children[vm.id] = process
                 if tpm:

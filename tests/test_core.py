@@ -371,7 +371,6 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual((data / "precious").read_text(), "vm")
 
 
-@unittest.skipIf(sys.platform == "win32", "Unix socket protocol test")
 class QMPTests(unittest.TestCase):
     def test_events_ignored_and_errors_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
