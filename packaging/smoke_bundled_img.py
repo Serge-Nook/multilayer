@@ -37,7 +37,9 @@ def main(cli: Path) -> None:
             dependency = Path(diagnostic["dependencies"][name])
             if dependency.parent.name != "bin" or dependency.parent.parent.name != "qemu":
                 raise RuntimeError("Frozen application did not select bundled " + name)
-        vm = json.loads(command("create", "--name", "Bundled tool smoke", "--disk", "1"))
+        vm = json.loads(
+            command("create", "--name", "Bundled tool smoke", "--disk", "1", "--accelerator", "tcg")
+        )
         identifier = vm["id"]
         command("snapshot", identifier, "create", "test")
         command("snapshot", identifier, "restore", "test", "--yes")
@@ -60,6 +62,8 @@ def main(cli: Path) -> None:
                     "uefi",
                     "--tpm",
                     "--secure-boot",
+                    "--accelerator",
+                    "tcg",
                 )
             )
             command("start", uefi["id"], "--headless")
