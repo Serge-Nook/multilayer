@@ -1,0 +1,62 @@
+name: Test and package
+on:
+  push:
+    branches: [main, 'devin/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86 qemu-utils ovmf swtpm
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check . && ruff format --check . && mypy multilayer
+      - run: python -m unittest discover -s tests -v
+        env:
+          MULTILAYER_INTEGRATION: '1'
+  linux:
+    runs-on: ubuntu-22.04
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: |
+          curl -fL https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool"
+          echo "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1  $RUNNER_TEMP/appimagetool" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" bash packaging/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multilayer-linux-x86_64
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+  windows:
+    runs-on: windows-2022
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m unittest discover -s tests -v
+      - run: choco install innosetup --version=6.4.3 -y --no-progress
+      - shell: pwsh
+        run: ./packaging/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multilayer-windows-x64
+          path: dist/*-Setup.exe

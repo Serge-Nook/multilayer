@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Мультислой
+Name[en]=Multilayer
+Comment=Локальные виртуальные машины QEMU/KVM
+Exec=multilayer --gui
+Icon=multilayer
+Terminal=false
+Categories=System;Emulator;
+Actions=Maintenance;
+
+[Desktop Action Maintenance]
+Name=Установить / обновить / удалить
+Exec=multilayer --maintenance
