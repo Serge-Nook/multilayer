@@ -49,25 +49,31 @@ def main(cli: Path) -> None:
         command("start", identifier, "--headless")
         if json.loads(command("status", identifier))["status"] != "running":
             raise RuntimeError("Bundled QEMU did not start the VM")
+        command("pause", identifier)
+        if json.loads(command("status", identifier))["status"] != "paused":
+            raise RuntimeError("Bundled QEMU did not pause the VM")
+        command("resume", identifier)
+        if json.loads(command("status", identifier))["status"] != "running":
+            raise RuntimeError("Bundled QEMU did not resume the VM")
         command("stop", identifier, "--yes")
+        command("start", identifier, "--headless")
+        command("stop", identifier, "--yes")
+        firmware_arguments = [
+            "create",
+            "--name",
+            "UEFI smoke",
+            "--disk",
+            "1",
+            "--firmware",
+            "uefi",
+            "--accelerator",
+            "tcg",
+        ]
         if sys.platform == "linux":
-            uefi = json.loads(
-                command(
-                    "create",
-                    "--name",
-                    "UEFI TPM smoke",
-                    "--disk",
-                    "1",
-                    "--firmware",
-                    "uefi",
-                    "--tpm",
-                    "--secure-boot",
-                    "--accelerator",
-                    "tcg",
-                )
-            )
-            command("start", uefi["id"], "--headless")
-            command("stop", uefi["id"], "--yes")
+            firmware_arguments.extend(["--tpm", "--secure-boot"])
+        uefi = json.loads(command(*firmware_arguments))
+        command("start", uefi["id"], "--headless")
+        command("stop", uefi["id"], "--yes")
         print("Bundled QEMU runtime passed without QEMU, firmware, TPM or tools in PATH")
 
 
