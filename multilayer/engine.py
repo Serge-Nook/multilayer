@@ -230,7 +230,7 @@ class Engine:
                     + str(number)
                     + (f",file={option_path(image)}" if image else ""),
                     "-device",
-                    f"ide-cd,drive=cd{number},bus=ide.{1 if number < 2 else 0},unit={number % 2 if number < 2 else 1},id=dvd{number}",
+                    f"ide-cd,drive=cd{number},bus=ide.{number + 1},unit=0,id=dvd{number}",
                 ]
             )
         if vm.firmware == "uefi":
