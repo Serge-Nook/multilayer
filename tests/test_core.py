@@ -1,4 +1,5 @@
 import contextlib
+import ctypes
 import io
 import json
 import os
@@ -25,7 +26,7 @@ from multilayer.engine import (
 from multilayer.maintenance import install_appimage, uninstall_appimage
 from multilayer.model import VM, MultilayerError
 from multilayer.network import local_networks, network_arguments, policy_command, verify_policy
-from multilayer.qmp import QMP
+from multilayer.qmp import QMP, windows_unix_socket
 from multilayer.sharing import folder_iso
 from multilayer.store import Store
 
@@ -371,7 +372,25 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual((data / "precious").read_text(), "vm")
 
 
+@unittest.skipIf(sys.platform == "win32", "CPython has no Windows AF_UNIX address codec")
 class QMPTests(unittest.TestCase):
+    def test_native_unix_connector_uses_raw_address_and_socket_io(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            endpoint = str(Path(temporary) / "qmp")
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+                server.bind(endpoint)
+                server.listen(1)
+                with patch("multilayer.qmp.ctypes.WinDLL", create=True) as loader:
+                    loader.return_value.connect = ctypes.CDLL(None, use_errno=True).connect
+                    loader.return_value.WSAGetLastError.side_effect = ctypes.get_errno
+                    with windows_unix_socket(endpoint, 1) as client:
+                        connection, _ = server.accept()
+                        with connection:
+                            client.sendall(b"request")
+                            self.assertEqual(connection.recv(7), b"request")
+                            connection.sendall(b"response")
+                            self.assertEqual(client.recv(8), b"response")
+
     def test_events_ignored_and_errors_reported(self):
         with tempfile.TemporaryDirectory() as temporary:
             endpoint = str(Path(temporary) / "qmp")

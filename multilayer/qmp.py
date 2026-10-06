@@ -1,10 +1,47 @@
+import ctypes
 import json
+import os
+import select
 import socket
+import struct
 import sys
 import time
 from typing import Any
 
 from multilayer.model import MultilayerError
+
+
+def windows_unix_socket(endpoint: str, timeout: float) -> socket.socket:
+    # Windows supports AF_UNIX, but CPython's Windows build has no address codec for it.
+    path = os.fsencode(endpoint)
+    if len(path) >= 108 or b"\0" in path:
+        raise OSError("Некорректный путь локального сокета QMP")
+    address = ctypes.create_string_buffer(struct.pack("H", 1) + path.ljust(108, b"\0"), 110)
+    loader = getattr(ctypes, "WinDLL")  # noqa: B009
+    library = loader("Ws2_32.dll", winmode=0x800)
+    connect = library.connect
+    connect.argtypes = [ctypes.c_size_t, ctypes.c_void_p, ctypes.c_int]
+    connect.restype = ctypes.c_int
+    last_error = library.WSAGetLastError
+    last_error.argtypes = []
+    last_error.restype = ctypes.c_int
+    sock = socket.socket(1, socket.SOCK_STREAM)
+    try:
+        sock.setblocking(False)
+        if connect(sock.fileno(), ctypes.byref(address), ctypes.sizeof(address)) != 0:
+            error = last_error()
+            if error not in (10035, 10036, 10037):
+                raise OSError(error, "Не удалось подключиться к локальному сокету QMP")
+            _, writable, exceptional = select.select([], [sock], [sock], timeout)
+            if not writable and not exceptional:
+                raise TimeoutError("Таймаут соединения QMP")
+            if error := sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR):
+                raise OSError(error, "Ошибка локального сокета QMP")
+        sock.settimeout(timeout)
+        return sock
+    except Exception:
+        sock.close()
+        raise
 
 
 class QMP:
@@ -29,6 +66,8 @@ class QMP:
                     0,
                     None,
                 )
+            elif sys.platform == "win32":
+                self.sock = windows_unix_socket(endpoint, timeout)
             else:
                 self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 self.sock.settimeout(timeout)
