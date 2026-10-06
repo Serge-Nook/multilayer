@@ -17,8 +17,21 @@ from multilayer.sharing import folder_iso
 from multilayer.store import Store, write_json
 
 
+def bundled_executable(name: str) -> Path | None:
+    if name == "qemu-img" and getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        candidate = base / "qemu" / "bin" / (name + (".exe" if sys.platform == "win32" else ""))
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
 def executable(name: str) -> str:
+    if bundled := bundled_executable(name):
+        return str(bundled)
     found = shutil.which(name)
+    if not found and sys.platform == "linux":
+        found = shutil.which(name, path="/usr/local/bin:/usr/bin:/bin")
     if not found and sys.platform == "win32":
         for directory in (
             Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "qemu",
@@ -43,7 +56,7 @@ def run(arguments: list[str], timeout: int = 120) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=external_env(),
+            env=external_env(arguments[0]),
         ).stdout
     except (OSError, subprocess.SubprocessError) as exc:
         message = getattr(exc, "stderr", None) or str(exc)
@@ -54,13 +67,16 @@ def option_path(path: Path | str) -> str:
     return str(path).replace(",", ",,")
 
 
-def external_env() -> dict[str, str]:
+def external_env(program: str | None = None) -> dict[str, str]:
     env = dict(os.environ)
     if getattr(sys, "frozen", False):
         if original := env.get("LD_LIBRARY_PATH_ORIG"):
             env["LD_LIBRARY_PATH"] = original
         else:
             env.pop("LD_LIBRARY_PATH", None)
+        bundled = bundled_executable("qemu-img")
+        if sys.platform == "linux" and bundled and program and Path(program).resolve() == bundled:
+            env["LD_LIBRARY_PATH"] = str(bundled.parent.parent / "lib")
     return env
 
 

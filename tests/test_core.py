@@ -14,7 +14,7 @@ from uuid import uuid4
 import pycdlib
 
 from multilayer.cli import main, parser
-from multilayer.engine import Engine, accelerator, external_env, option_path
+from multilayer.engine import Engine, accelerator, executable, external_env, option_path
 from multilayer.maintenance import install_appimage, uninstall_appimage
 from multilayer.model import VM, MultilayerError
 from multilayer.network import local_networks, network_arguments, policy_command, verify_policy
@@ -98,6 +98,71 @@ class ModelTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(external_env()["LD_LIBRARY_PATH"], "/system")
+
+
+class ExecutableTests(unittest.TestCase):
+    def test_bundled_qemu_img_precedes_host_on_both_platforms(self):
+        for platform, suffix in (("linux", ""), ("win32", ".exe")):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temporary:
+                base = Path(temporary)
+                (base / "qemu/bin").mkdir(parents=True)
+                binary = base / "qemu/bin" / ("qemu-img" + suffix)
+                binary.write_bytes(b"bundled")
+                with (
+                    patch.object(sys, "frozen", True, create=True),
+                    patch.object(sys, "_MEIPASS", str(base), create=True),
+                    patch.object(sys, "platform", platform),
+                    patch("shutil.which") as which,
+                ):
+                    self.assertEqual(executable("qemu-img"), str(binary.resolve()))
+                    which.assert_not_called()
+
+    def test_source_run_uses_host_tool(self):
+        with (
+            patch.object(sys, "frozen", False, create=True),
+            patch("shutil.which", return_value="/host/qemu-img"),
+        ):
+            self.assertEqual(executable("qemu-img"), str(Path("/host/qemu-img").resolve()))
+
+    def test_linux_falls_back_to_standard_system_directories(self):
+        with (
+            patch.object(sys, "platform", "linux"),
+            patch.object(sys, "frozen", False, create=True),
+            patch("shutil.which", side_effect=[None, "/usr/bin/qemu-img"]) as which,
+        ):
+            self.assertEqual(executable("qemu-img"), str(Path("/usr/bin/qemu-img").resolve()))
+            which.assert_called_with("qemu-img", path="/usr/local/bin:/usr/bin:/bin")
+
+    def test_missing_tool_still_reports_error(self):
+        with (
+            patch.object(sys, "frozen", False, create=True),
+            patch("shutil.which", return_value=None),
+            patch("pathlib.Path.is_file", return_value=False),
+            self.assertRaisesRegex(MultilayerError, "Не найден qemu-img"),
+        ):
+            executable("qemu-img")
+
+    def test_bundled_library_path_does_not_leak_to_system_qemu(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            (base / "qemu/bin").mkdir(parents=True)
+            binary = base / "qemu/bin/qemu-img"
+            binary.write_bytes(b"bundled")
+            with (
+                patch.object(sys, "frozen", True, create=True),
+                patch.object(sys, "_MEIPASS", str(base), create=True),
+                patch.object(sys, "platform", "linux"),
+                patch.dict(
+                    os.environ, {"LD_LIBRARY_PATH": "/qt", "LD_LIBRARY_PATH_ORIG": "/original"}
+                ),
+            ):
+                self.assertEqual(
+                    external_env(str(binary))["LD_LIBRARY_PATH"], str(base / "qemu/lib")
+                )
+                self.assertEqual(
+                    external_env("/usr/bin/qemu-system-x86_64")["LD_LIBRARY_PATH"], "/original"
+                )
+                self.assertEqual(os.environ["LD_LIBRARY_PATH"], "/qt")
 
 
 class StoreTests(unittest.TestCase):

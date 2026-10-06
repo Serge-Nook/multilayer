@@ -62,19 +62,23 @@ KVM — компонент ядра Linux, его нельзя включить 
 Установите зависимости хоста:
 
 ```sh
-sudo pacman -S qemu-desktop qemu-img edk2-ovmf swtpm
+sudo pacman -Syu qemu-desktop edk2-ovmf swtpm
 # Для отдельных политик сети:
 sudo pacman -S bpf polkit iproute2
-chmod +x Multilayer-0.1.1-x86_64.AppImage
-./Multilayer-0.1.1-x86_64.AppImage
+chmod +x Multilayer-0.1.2-x86_64.AppImage
+./Multilayer-0.1.2-x86_64.AppImage
 ```
 
-Первый запуск показывает **«Установить/обновить — Удалить — Выйти»**. Установка без root копирует AppImage в `~/.local/opt/multilayer` и добавляет пункт меню. Для обновления скачайте новый AppImage и выберите установку/обновление. Для запуска без меню: `./Multilayer-0.1.1-x86_64.AppImage --gui`. При отсутствии FUSE: `--appimage-extract-and-run --gui`. AppImage содержит приложение/Qt, **не содержит ядро KVM, QEMU, OVMF или swtpm**.
+Первый запуск показывает **«Установить/обновить — Удалить — Выйти»**. Установка без root копирует AppImage в `~/.local/opt/multilayer` и добавляет пункт меню. Для обновления скачайте новый AppImage и выберите установку/обновление. Для запуска без меню: `./Multilayer-0.1.2-x86_64.AppImage --gui`. При отсутствии FUSE: `--appimage-extract-and-run --gui`.
+
+**Начиная с 0.1.2, `qemu-img` и его библиотеки входят в AppImage, DEB и EXE.** Создание дисков, снимки и клонирование не требуют отдельной установки `qemu-img` или настройки PATH. Встроенный инструмент используется первым; его библиотеки изолированы от Qt и системного QEMU. Лицензии и сведения об исходниках находятся в `_internal/qemu/licenses` внутри установленного приложения.
+
+Это не полная встроенная установка QEMU: **для запуска гостевой ОС** по-прежнему требуется системный `qemu-system-x86_64` (в Arch — `qemu-desktop`); для UEFI/TPM — OVMF/swtpm. KVM — компонент ядра Linux, а не AppImage. Меню «Диагностика» показывает фактические пути к инструментам.
 
 ### Debian 12+ / Ubuntu 22.04+ — DEB
 
 ```sh
-sudo apt install ./multilayer_0.1.1_amd64.deb
+sudo apt install ./multilayer_0.1.2_amd64.deb
 multilayer --gui
 multilayer --maintenance
 ```
@@ -85,7 +89,7 @@ DEB открывается системным менеджером пакето�
 
 ### Windows 10/11 — EXE
 
-Запустите `Multilayer-0.1.1-Setup.exe`, выберите **«Установить/обновить — Удалить — Выйти»**. Приложение устанавливается для текущего пользователя, без удаления данных ВМ. GUI: ярлык «Мультислой». CLI: `%LOCALAPPDATA%\Programs\Multilayer\cli\multilayer-cli.exe`.
+Запустите `Multilayer-0.1.2-Setup.exe`, выберите **«Установить/обновить — Удалить — Выйти»**. Приложение устанавливается для текущего пользователя, без удаления данных ВМ. GUI: ярлык «Мультислой». CLI: `%LOCALAPPDATA%\Programs\Multilayer\cli\multilayer-cli.exe`.
 
 Отдельно установите [QEMU для Windows](https://www.qemu.org/download/#windows) (обычно `C:\Program Files\qemu`) и включите Windows Hypervisor Platform средствами Windows. QEMU с SDL нужен для консоли; headless-запуск работает без SDL. Установщик не скачивает исполняемые файлы и не включает системные компоненты без согласия пользователя. Для UEFI укажите совместимую пару CODE/VARS вручную, если пакет QEMU не содержит OVMF. Ограничения TPM и сети см. в таблице выше. Нативное WHPX/GUI-тестирование требует Windows-машины; успешная сборка EXE сама по себе не доказывает запуск ВМ.
 
@@ -134,6 +138,6 @@ python -m multilayer --gui
 
 Интеграционные тесты используют QEMU/TCG, реальное QMP-управление, загрузку минимального bootable ISO, снимки с проверкой байтов диска, клонирование, UEFI/TPM и подключение диска обмена. Не требуют скачивания ОС, root или `/dev/kvm`. Они **не заменяют** установку гостевых ОС и проверку firewall на реальной системе.
 
-Сборка Linux: `bash packaging/build_linux.sh`; нужны `dpkg-deb`, `desktop-file-utils` и библиотеки Qt/XCB (список в Linux job CI). Для AppImage задайте `APPIMAGETOOL=/path/appimagetool-x86_64.AppImage` (официальный appimagetool 1.9.0). Сборка Windows на Windows с Inno Setup 6: `./packaging/build_windows.ps1`. Оба скрипта используют PyInstaller, GUI не нужен во время сборки.
+Сборка Linux: `bash packaging/build_linux.sh`; нужны Ubuntu 22.04+, `qemu-utils`, `dpkg-deb`, `desktop-file-utils` и библиотеки Qt/XCB (список в Linux job CI). Скрипт включает `qemu-img`, его транзитивные библиотеки (кроме glibc хоста) и уведомления о лицензиях из пакетов Ubuntu. Для AppImage задайте `APPIMAGETOOL=/path/appimagetool-x86_64.AppImage` (официальный appimagetool 1.9.0). Сборка Windows на Windows с Inno Setup 6 и QEMU для сборки: `./packaging/build_windows.ps1`; путь к `qemu-img.exe` можно задать в `QEMU_IMG`. CI использует проверенный пакет Chocolatey QEMU 2025.12.24 (QEMU 10.2.0) и включает инструмент с необходимыми DLL в GUI и CLI. Оба скрипта проверяют создание диска, снимок, восстановление и клонирование с очищенным PATH перед упаковкой установщика. GUI не нужен во время сборки.
 
 Готовые пакеты: [GitHub Releases](https://github.com/Serge-Nook/multilayer/releases). Тег `v<версия>` запускает проверки и сборки, затем публикует предварительный релиз с тремя установщиками и `SHA256SUMS`. Опубликованные релизы не перезаписываются; версия тега должна совпадать с версией приложения. Публикация выполняется только после успешной сборки обеих платформ.
