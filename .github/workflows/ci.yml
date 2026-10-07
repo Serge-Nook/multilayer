@@ -1,0 +1,117 @@
+name: Test and package
+on:
+  push:
+    branches: [main, 'devin/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y qemu-system-x86 qemu-utils ovmf swtpm libegl1 libgl1
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check . && ruff format --check . && mypy multilayer
+      - run: python -m unittest discover -s tests -v
+        env:
+          MULTILAYER_INTEGRATION: '1'
+      - run: python packaging/bundle_qemu.py --firmware-only --target build/firmware
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uefi-runtime
+          path: build/firmware
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y qemu-utils qemu-system-x86 qemu-system-gui ovmf swtpm iproute2 linux-tools-generic desktop-file-utils libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-shape0 xvfb xauth
+      - run: python -m pip install -e '.[dev]'
+      - run: |
+          curl -fL https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool"
+          echo "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1  $RUNNER_TEMP/appimagetool" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          APPIMAGETOOL="$RUNNER_TEMP/appimagetool" xvfb-run -a bash packaging/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multilayer-linux-x86_64
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: uefi-runtime
+          path: build/firmware
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m unittest discover -s tests -v
+      - shell: pwsh
+        run: |
+          choco install qemu --version=2025.12.24 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Build-time QEMU installation failed' }
+      - shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $compiler) -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --version=6.4.3 --allow-downgrade -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+      - shell: pwsh
+        run: ./packaging/build_windows.ps1
+      - shell: pwsh
+        run: |
+          & .\dist\multilayer-cli\multilayer-cli.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI version check failed' }
+          & .\dist\multilayer-cli\multilayer-cli.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI help check failed' }
+          & .\dist\multilayer-cli\multilayer-cli.exe --home "$env:RUNNER_TEMP\multilayer-smoke" list
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen CLI list check failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: multilayer-windows-x64
+          path: dist/*-Setup.exe
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: multilayer-*
+          merge-multiple: true
+          path: dist
+      - run: python packaging/publish_release.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
