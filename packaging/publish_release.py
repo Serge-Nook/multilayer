@@ -59,7 +59,43 @@ def main(directory: Path = Path("dist")) -> None:
                 "name": "Мультислой " + tag,
                 "draft": True,
                 "prerelease": True,
-                "body": "Предварительная версия локального менеджера QEMU/KVM: русский GUI и CLI, ISO, QCOW2, BIOS/UEFI, снимки, клонирование и управление сетью.\n\nАвтор: Горшков Сергей Владимирович — https://nookbat.ru.\n\nAppImage — Arch/Linux, DEB — Debian/Ubuntu с glibc >= 2.35, EXE — Windows 10/11 x64. В 0.1.4 исправлена упаковка графической консоли: добавлен зависимый модуль ui-opengl вместе с библиотеками; сборки проверяют запуск SDL-дисплея, а Linux — также загрузку модулей именно из дистрибутива. Установщики включают QEMU system emulator, qemu-img, TCG, SDL, BIOS/UEFI и необходимые библиотеки; Linux также включает swtpm, ip и bpftool. Отдельная установка прикладных компонентов не нужна. Лицензии и сведения об исходниках — в _internal/qemu/licenses.\n\nKVM/WHPX, ядро, драйверы и базовые службы ОС не могут поставляться внутри приложения; без аппаратного ускорения используется TCG. Раздельные политики internet/LAN используют systemd/cgroup v2 и polkit. TPM доступен только на Linux; гостевая Windows 11 на Windows-хосте пока не поддерживается. GUI, полные установки гостевых ОС и WHPX ещё не проверены интерактивно. Инструкции и ограничения — в README репозитория.",
+                "body": (
+                    "Предварительная версия локального менеджера QEMU/KVM. "
+                    "Автор: Горшков Сергей Владимирович — https://nookbat.ru.\n\n"
+                    "### Новое в 0.1.5\n"
+                    "- Русский/английский GUI и CLI; меню «Язык», немедленное переключение "
+                    "и сохранение выбора. CLI: `--lang ru|en`.\n"
+                    "- Кликабельный сайт и новый текст о SteamOS/бесплатном использовании "
+                    "в «О программе». Установка/удаление теперь доступна там.\n"
+                    "- Импорт/экспорт выключенных ВМ через `.multis`: диск, настройки, "
+                    "снимки, UEFI/TPM и пользовательская прошивка. Проверка формата, "
+                    "контрольных сумм и путей; существующие ВМ не заменяются.\n"
+                    "- Логотип в окнах, Linux-ярлыках, Windows EXE и установщике.\n\n"
+                    "ISO и внешнюю папку обмена после переноса подключите заново. "
+                    "При импорте ускорение выбирается автоматически, сетевые ограничения "
+                    "и TPM сохраняются. Архив не зашифрован и содержит секреты гостя/TPM: "
+                    "храните безопасно и импортируйте только доверенные файлы.\n\n"
+                    "AppImage — Arch/SteamOS/Linux; DEB — Debian/Ubuntu с glibc >= 2.35; "
+                    "EXE — Windows 10/11 x64. Установщики содержат QEMU, qemu-img, TCG/SDL, "
+                    "BIOS/UEFI и библиотеки; Linux также содержит swtpm, ip и bpftool. "
+                    "Отдельная установка QEMU не нужна. Лицензии/исходники: "
+                    "`_internal/qemu/licenses`.\n\n"
+                    "KVM/WHPX, ядро, драйверы и службы остаются возможностями основной ОС; "
+                    "без аппаратного ускорения используется TCG. Строгие интернет/LAN "
+                    "политики требуют Linux/systemd/cgroup v2/polkit. TPM доступен только "
+                    "на Linux; штатная гостевая Windows 11 на Windows-хосте пока не поддерживается. "
+                    "Обновление/удаление приложения сохраняет ВМ.\n\n"
+                    "Проверены автоматические тесты и упакованный runtime, включая SDL, "
+                    "перенос снимков/UEFI/TPM и английский CLI без QEMU в PATH. "
+                    "Интерактивные GUI/установщики, нативные Arch/SteamOS/WHPX и полные "
+                    "установки гостевых ОС не проверены.\n\n"
+                    "**English:** Instant, persistent Russian/English switching; clickable "
+                    "About website; application logo; stopped-VM import/export via `.multis` "
+                    "with disks, settings, snapshots and UEFI/TPM. Reattach external ISOs "
+                    "and shared folders after import. Archives contain guest secrets and "
+                    "are not encrypted. QEMU is bundled; host virtualization/drivers/services "
+                    "remain OS features. See the repository README for limitations."
+                ),
             },
         )
     if not release["draft"]:
