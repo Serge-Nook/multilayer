@@ -90,6 +90,47 @@ QEMU, SDL, BIOS и UEFI входят в EXE. При выключенном Windo
 
 ## CLI
 
+### Язык и перенос ВМ (0.1.5)
+
+Меню **«Язык»** переключает русский/английский интерфейс сразу; выбор сохраняется
+для пользователя. GUI, справка CLI и собственные сообщения приложения переведены.
+Исходные сообщения QEMU/ОС и имена пользовательских ВМ остаются без изменений.
+Установка/удаление приложения доступна из **«О программе»** и через `--maintenance`.
+
+**Экспорт** выбранной выключенной ВМ создаёт файл **.multis**; **Импорт** добавляет
+выключенную ВМ без замены существующих. В архив входят настройки, полный QCOW2-диск
+с внутренними снимками, данные снимков, UEFI NVRAM, TPM и пользовательская прошивка.
+Идентификатор сохраняется, если свободен; при совпадении создаётся новый.
+Импортированные снимки получают правильные пути и идентификатор новой ВМ.
+Ускорение при импорте переключается на `auto`; сетевые ограничения и TPM сохраняются.
+Неподдерживаемые на новом хосте режимы не заменяются менее защищёнными.
+Для TPM и строгих сетевых политик по-прежнему требуется Linux.
+
+Установочные ISO, ISO драйверов и внешняя папка обмена **не включаются**: подключите
+их заново на новом ПК. Архив содержит секреты гостевой ОС и TPM: храните его как
+резервную копию диска, не передавайте посторонним. Сам архив не зашифрован.
+Импортируйте только доверенные архивы. Версия формата и контрольные суммы
+проверяются; ссылки, небезопасные пути и внешние backing/data-файлы запрещены.
+
+```sh
+multilayer --lang en --help
+multilayer export VM_ID backup.multis
+multilayer import backup.multis --name "Перенесённая ВМ"
+# Замена существующего файла архива требует явного --overwrite:
+multilayer export VM_ID backup.multis --overwrite
+```
+
+Переменная `MULTILAYER_LANG=ru|en` задаёт язык без изменения сохранённого выбора.
+`MULTILAYER_CONFIG` позволяет указать отдельный файл пользовательских настроек.
+
+**English:** The **Language** menu switches between Russian and English instantly.
+Export a stopped VM to a **.multis** archive and import it on another PC without
+overwriting existing VMs. Disks, snapshots, UEFI/TPM state and custom firmware are
+included; reattach installation ISOs and the external shared folder separately.
+Acceleration is selected automatically after import; network policies and TPM
+requirements remain unchanged. Archives are not encrypted and contain guest
+secrets. Import trusted files only. Application maintenance is available in **About**.
+
 ```sh
 multilayer doctor
 multilayer create --name 'Debian test' --guest Debian --iso /path/debian.iso \

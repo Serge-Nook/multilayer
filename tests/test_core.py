@@ -363,11 +363,17 @@ class MaintenanceTests(unittest.TestCase):
             data.mkdir(parents=True)
             (data / "precious").write_text("vm")
             destination = install_appimage(source)
+            desktop = home / ".local/share/applications/multilayer.desktop"
+            icon = home / ".local/share/icons/hicolor/scalable/apps/multilayer.svg"
+            self.assertIn("Icon=multilayer", desktop.read_text("utf-8"))
+            self.assertIn("Name[en]=Multilayer", desktop.read_text("utf-8"))
+            self.assertTrue(icon.exists())
             self.assertEqual(destination.read_bytes(), b"version one")
             source.write_bytes(b"version two")
             install_appimage(source)
             self.assertEqual(destination.read_bytes(), b"version two")
             uninstall_appimage()
+            self.assertFalse(icon.exists())
             self.assertFalse(destination.exists())
             self.assertEqual((data / "precious").read_text(), "vm")
 

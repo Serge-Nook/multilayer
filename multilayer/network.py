@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from multilayer.i18n import tr
 from multilayer.model import VM, MultilayerError
 from multilayer.runtime import bundled_executable, executable, external_env
 
@@ -28,7 +29,7 @@ def local_networks(vm: VM) -> list[str]:
         try:
             networks.add(str(ipaddress.ip_network(cidr, strict=False)))
         except ValueError as exc:
-            raise MultilayerError(f"Некорректная LAN подсеть: {cidr}") from exc
+            raise MultilayerError(tr("Некорректная LAN подсеть: {value0}", value0=cidr)) from exc
     ip = executable("ip")
     try:
         result = subprocess.run(
@@ -48,7 +49,9 @@ def local_networks(vm: VM) -> list[str]:
                     )
                 )
     except (subprocess.SubprocessError, ValueError, KeyError) as exc:
-        raise MultilayerError("Не удалось определить локальные подсети; запуск отменён") from exc
+        raise MultilayerError(
+            tr("Не удалось определить локальные подсети; запуск отменён")
+        ) from exc
     return sorted(networks)
 
 
@@ -57,12 +60,16 @@ def network_arguments(vm: VM) -> list[str]:
         return ["-nic", "none"]
     if vm.network == "tap":
         if sys.platform != "linux" or not re.fullmatch(r"[a-zA-Z0-9_-]{1,15}", vm.tap):
-            raise MultilayerError("Мост требует Linux и имени существующего TAP (до 15 символов)")
+            raise MultilayerError(
+                tr("Мост требует Linux и имени существующего TAP (до 15 символов)")
+            )
         backend = f"tap,id=net0,ifname={vm.tap},script=no,downscript=no"
     else:
         if vm.network in ("internet", "lan") and sys.platform != "linux":
             raise MultilayerError(
-                "Раздельный доступ к интернету/LAN реализован только в Linux. В Windows выберите отключение, изоляцию или NAT."
+                tr(
+                    "Раздельный доступ к интернету/LAN реализован только в Linux. В Windows выберите отключение, изоляцию или NAT."
+                )
             )
         restrict = "on" if vm.network == "isolated" else "off"
         backend = f"user,id=net0,restrict={restrict},ipv6=off"
@@ -74,11 +81,11 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
     if vm.network not in ("internet", "lan"):
         return command, None
     if sys.platform != "linux" or not Path("/sys/fs/cgroup/cgroup.controllers").is_file():
-        raise MultilayerError("Сетевые политики требуют Linux с systemd и cgroup v2")
+        raise MultilayerError(tr("Сетевые политики требуют Linux с systemd и cgroup v2"))
     binaries = {name: shutil.which(name) for name in ("systemd-run", "pkexec")}
     binaries["bpftool"] = executable("bpftool")
     if not all(binaries.values()) or not Path("/run/systemd/system").is_dir():
-        raise MultilayerError("Сетевые политики требуют systemd, bpftool и polkit (pkexec)")
+        raise MultilayerError(tr("Сетевые политики требуют systemd, bpftool и polkit (pkexec)"))
     networks = local_networks(vm)
     unit = f"multilayer-{vm.id}.service"
     properties = [
@@ -94,16 +101,16 @@ def policy_command(vm: VM, command: list[str], directory: Path) -> tuple[list[st
         try:
             resolver = ipaddress.ip_address(vm.dns)
             if any(resolver in ipaddress.ip_network(cidr) for cidr in networks):
-                raise ValueError("DNS находится в запрещённой подсети")
+                raise ValueError(tr("DNS находится в запрещённой подсети"))
         except ValueError as exc:
             raise MultilayerError(
-                f"Для режима «только интернет» укажите публичный DNS: {exc}"
+                tr("Для режима «только интернет» укажите публичный DNS: {value0}", value0=exc)
             ) from exc
         resolv = directory / "resolv.conf"
         resolv.write_text(f"nameserver {resolver}\n", encoding="ascii")
         if any(c in str(resolv) for c in (":", " ", "\n")):
             raise MultilayerError(
-                "Для сетевой политики путь данных не должен содержать пробелы или двоеточия"
+                tr("Для сетевой политики путь данных не должен содержать пробелы или двоеточия")
             )
         properties.append(f"--property=BindReadOnlyPaths={resolv}:/etc/resolv.conf")
     else:
@@ -157,8 +164,8 @@ def verify_policy(unit: str) -> None:
         if not (
             {"ingress", "egress"} <= types or {"cgroup_inet_ingress", "cgroup_inet_egress"} <= types
         ):
-            raise ValueError("не подтверждены ingress/egress BPF фильтры")
+            raise ValueError(tr("не подтверждены ingress/egress BPF фильтры"))
     except (subprocess.SubprocessError, ValueError, TypeError) as exc:
         raise MultilayerError(
-            f"Не удалось подтвердить firewall: {exc}. ВМ не будет запущена."
+            tr("Не удалось подтвердить firewall: {value0}. ВМ не будет запущена.", value0=exc)
         ) from exc

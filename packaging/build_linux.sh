@@ -2,7 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python packaging/bundle_qemu.py --binary "$(command -v qemu-img)"
-python -m PyInstaller --noconfirm --clean --name multilayer --onedir --collect-submodules pycdlib --add-data build/qemu-runtime:qemu packaging/entry.py
+qttranslations=$(python -c 'from PySide6.QtCore import QLibraryInfo; print(QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath))')
+python -m PyInstaller --noconfirm --clean --name multilayer --onedir --collect-submodules pycdlib --add-data build/qemu-runtime:qemu --add-data multilayer/assets:multilayer/assets --add-data "$qttranslations/qtbase_ru.qm:qt-translations" packaging/entry.py
 python packaging/smoke_bundled_img.py dist/multilayer/multilayer
 version=$(python -c 'from multilayer import __version__; print(__version__)')
 stage="build/deb"

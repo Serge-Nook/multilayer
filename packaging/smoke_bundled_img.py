@@ -97,8 +97,25 @@ def main(cli: Path) -> None:
         uefi = json.loads(command(*firmware_arguments))
         command("start", uefi["id"], "--headless")
         command("stop", uefi["id"], "--yes")
+        archive = str(Path(temporary) / "transfer.multis")
+        command("export", uefi["id"], archive)
+        imported = json.loads(command("import", archive))
+        if imported["id"] == uefi["id"] or imported["firmware"] != "uefi":
+            raise RuntimeError("Bundled import did not preserve firmware or prevent VM overwrite")
+        command("edit", imported["id"], "--accelerator", "tcg")
+        command("start", imported["id"], "--headless")
+        command("stop", imported["id"], "--yes")
+        transfer = str(Path(temporary) / "snapshot.multis")
+        command("export", identifier, transfer)
+        restored = json.loads(command("import", transfer))
+        command("snapshot", restored["id"], "restore", "test", "--yes")
+        if json.loads(command("show", restored["id"]))["id"] != restored["id"]:
+            raise RuntimeError("Imported snapshot restored the original VM identifier")
+        help_text = command("--lang", "en", "--help")
+        if "VM data directory" not in help_text or "Multilayer" not in help_text:
+            raise RuntimeError("Bundled English CLI translations are missing")
         print(
-            "Bundled QEMU runtime and SDL display passed without QEMU, firmware, TPM or tools in PATH"
+            "Bundled QEMU/SDL, English CLI and .multis disk/snapshot/UEFI/TPM transfer passed without tools in PATH"
         )
 
 

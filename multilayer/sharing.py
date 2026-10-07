@@ -2,6 +2,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from multilayer.i18n import tr
 from multilayer.model import MultilayerError
 
 
@@ -10,7 +11,7 @@ def folder_iso(folder: Path, destination: Path) -> None:
 
     folder = folder.resolve()
     if not folder.is_dir():
-        raise MultilayerError("Папка обмена не найдена")
+        raise MultilayerError(tr("Папка обмена не найдена"))
     entries: list[tuple[Path, bool]] = []
     total = 0
     for parent, directories, files in os.walk(folder, followlinks=False):
@@ -18,17 +19,19 @@ def folder_iso(folder: Path, destination: Path) -> None:
             path = Path(parent) / name
             if path.is_symlink():
                 raise MultilayerError(
-                    f"Папка обмена содержит ссылку: {path}. Ссылки не копируются."
+                    tr("Папка обмена содержит ссылку: {path}. Ссылки не копируются.", path=path)
                 )
             if not path.is_file() and not path.is_dir():
-                raise MultilayerError(f"Необычный тип файла: {path}")
+                raise MultilayerError(tr("Необычный тип файла: {path}", path=path))
             if len(name) > 64:
-                raise MultilayerError(f"Joliet поддерживает имена до 64 символов: {name}")
+                raise MultilayerError(
+                    tr("Joliet поддерживает имена до 64 символов: {name}", name=name)
+                )
             entries.append((path, path.is_dir()))
             if path.is_file():
                 total += path.stat().st_size
                 if total > 8 * 1024**3:
-                    raise MultilayerError("Папка обмена больше 8 ГБ; выберите меньшую папку")
+                    raise MultilayerError(tr("Папка обмена больше 8 ГБ; выберите меньшую папку"))
     entries.sort(key=lambda item: (len(item[0].relative_to(folder).parts), str(item[0])))
     iso = pycdlib.PyCdlib()
     fd, temporary = tempfile.mkstemp(dir=destination.parent, suffix=".iso")
@@ -48,7 +51,7 @@ def folder_iso(folder: Path, destination: Path) -> None:
         iso.write(temporary)
         os.replace(temporary, destination)
     except (OSError, pycdlib.pycdlibexception.PyCdlibException) as exc:
-        raise MultilayerError(f"Не удалось собрать диск обмена: {exc}") from exc
+        raise MultilayerError(tr("Не удалось собрать диск обмена: {error}", error=exc)) from exc
     finally:
         iso.close()
         Path(temporary).unlink(missing_ok=True)

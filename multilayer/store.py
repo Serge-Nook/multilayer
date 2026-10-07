@@ -8,6 +8,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+from multilayer.i18n import tr
 from multilayer.model import VM, MultilayerError
 
 
@@ -51,15 +52,17 @@ class Store:
 
     def get(self, identifier: str) -> VM:
         if (self.path(identifier) / ".deleting").exists():
-            raise MultilayerError("ВМ удаляется")
+            raise MultilayerError(tr("ВМ удаляется"))
         try:
             vm = VM(**json.loads((self.path(identifier) / "vm.json").read_text("utf-8")))
             vm.validate(check_files=False)
             if vm.id != identifier:
-                raise ValueError("ID не совпадает с каталогом")
+                raise ValueError(tr("ID не совпадает с каталогом"))
             return vm
         except (OSError, ValueError, TypeError) as exc:
-            raise MultilayerError(f"Не удалось прочитать ВМ {identifier}: {exc}") from exc
+            raise MultilayerError(
+                tr("Не удалось прочитать ВМ {id}: {error}", id=identifier, error=exc)
+            ) from exc
 
     def save(self, vm: VM) -> None:
         vm.validate()
@@ -95,7 +98,7 @@ class Store:
                     break
                 except OSError as exc:
                     if time.monotonic() >= deadline:
-                        raise MultilayerError("ВМ занята другой операцией") from exc
+                        raise MultilayerError(tr("ВМ занята другой операцией")) from exc
                     time.sleep(0.05)
             try:
                 yield

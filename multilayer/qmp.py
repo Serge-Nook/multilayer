@@ -8,6 +8,7 @@ import sys
 import time
 from typing import Any
 
+from multilayer.i18n import tr
 from multilayer.model import MultilayerError
 
 
@@ -15,7 +16,7 @@ def windows_unix_socket(endpoint: str, timeout: float) -> socket.socket:
     # Windows supports AF_UNIX, but CPython's Windows build has no address codec for it.
     path = os.fsencode(endpoint)
     if len(path) >= 108 or b"\0" in path:
-        raise OSError("Некорректный путь локального сокета QMP")
+        raise OSError(tr("Некорректный путь локального сокета QMP"))
     address = ctypes.create_string_buffer(struct.pack("H", 1) + path.ljust(108, b"\0"), 110)
     loader = getattr(ctypes, "WinDLL")  # noqa: B009
     library = loader("Ws2_32.dll", winmode=0x800)
@@ -31,12 +32,12 @@ def windows_unix_socket(endpoint: str, timeout: float) -> socket.socket:
         if connect(sock.fileno(), ctypes.byref(address), ctypes.sizeof(address)) != 0:
             error = last_error()
             if error not in (10035, 10036, 10037):
-                raise OSError(error, "Не удалось подключиться к локальному сокету QMP")
+                raise OSError(error, tr("Не удалось подключиться к локальному сокету QMP"))
             _, writable, exceptional = select.select([], [sock], [sock], timeout)
             if not writable and not exceptional:
-                raise TimeoutError("Таймаут соединения QMP")
+                raise TimeoutError(tr("Таймаут соединения QMP"))
             if error := sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR):
-                raise OSError(error, "Ошибка локального сокета QMP")
+                raise OSError(error, tr("Ошибка локального сокета QMP"))
         sock.settimeout(timeout)
         return sock
     except Exception:
@@ -73,17 +74,17 @@ class QMP:
                 self.sock.settimeout(timeout)
                 self.sock.connect(endpoint)
             if "QMP" not in self._receive():
-                raise MultilayerError("Некорректное приветствие QMP")
+                raise MultilayerError(tr("Некорректное приветствие QMP"))
             self.execute("qmp_capabilities")
         except Exception as exc:
             self.close()
-            raise OSError(f"Соединение QMP недоступно: {exc}") from exc
+            raise OSError(tr("Соединение QMP недоступно: {error}", error=exc)) from exc
 
     def _receive(self) -> dict:
         deadline = time.monotonic() + self.timeout
         while b"\n" not in self.buffer:
             if time.monotonic() >= deadline:
-                raise TimeoutError("Таймаут QMP")
+                raise TimeoutError(tr("Таймаут QMP"))
             if self.sock is not None:
                 data = self.sock.recv(65536)
             else:
@@ -96,10 +97,10 @@ class QMP:
                     continue
                 _, data = win32file.ReadFile(self.pipe, min(available, 65536))
             if not data:
-                raise ConnectionError("QEMU закрыл соединение QMP")
+                raise ConnectionError(tr("QEMU закрыл соединение QMP"))
             self.buffer += data
             if len(self.buffer) > 4 * 1024 * 1024:
-                raise MultilayerError("Слишком большой ответ QMP")
+                raise MultilayerError(tr("Слишком большой ответ QMP"))
         line, self.buffer = self.buffer.split(b"\n", 1)
         return json.loads(line)
 
@@ -123,7 +124,7 @@ class QMP:
             if "error" in response:
                 raise MultilayerError(response["error"].get("desc", str(response["error"])))
             return response.get("return")
-        raise TimeoutError("Нет ответа на команду QMP")
+        raise TimeoutError(tr("Нет ответа на команду QMP"))
 
     def close(self) -> None:
         if self.sock is not None:

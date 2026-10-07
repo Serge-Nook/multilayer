@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import psutil
 
+from multilayer.i18n import tr
 from multilayer.model import VM, MultilayerError
 from multilayer.network import network_arguments, policy_command, verify_policy
 from multilayer.qmp import QMP
@@ -57,9 +58,9 @@ def whpx_available() -> bool:
 def accelerator(vm: VM) -> str:
     if vm.accelerator != "auto":
         if vm.accelerator == "kvm" and sys.platform != "linux":
-            raise MultilayerError("KVM доступен только в Linux")
+            raise MultilayerError(tr("KVM доступен только в Linux"))
         if vm.accelerator == "whpx" and sys.platform != "win32":
-            raise MultilayerError("WHPX доступен только в Windows")
+            raise MultilayerError(tr("WHPX доступен только в Windows"))
         return vm.accelerator
     if sys.platform == "linux" and os.access("/dev/kvm", os.R_OK | os.W_OK):
         return "kvm"
@@ -89,7 +90,9 @@ def find_firmware(vm: VM) -> tuple[Path, Path]:
             if (base / code).is_file() and (base / variables).is_file():
                 return base / code, base / variables
     raise MultilayerError(
-        "Не найдена пара UEFI CODE/VARS. Переустановите полный дистрибутив или укажите оба файла прошивки вручную."
+        tr(
+            "Не найдена пара UEFI CODE/VARS. Переустановите полный дистрибутив или укажите оба файла прошивки вручную."
+        )
     )
 
 
@@ -105,7 +108,9 @@ class Engine:
         else:
             path = str(self.store.path(vm.id) / "qmp.sock")
         if len(path.encode()) > 100:
-            raise MultilayerError("Путь данных слишком длинный для сокета QMP (максимум 100 байт)")
+            raise MultilayerError(
+                tr("Путь данных слишком длинный для сокета QMP (максимум 100 байт)")
+            )
         return path
 
     def status(self, identifier: str) -> str:
@@ -136,13 +141,13 @@ class Engine:
 
     def require_stopped(self, vm: VM) -> None:
         if self.status(vm.id) != "stopped":
-            raise MultilayerError("Сначала полностью выключите ВМ")
+            raise MultilayerError(tr("Сначала полностью выключите ВМ"))
 
     def create(self, vm: VM) -> VM:
         vm.validate()
         directory = self.store.path(vm.id)
         if directory.exists():
-            raise MultilayerError("ВМ с таким ID уже существует")
+            raise MultilayerError(tr("ВМ с таким ID уже существует"))
         directory.mkdir(mode=0o700)
         try:
             run(
@@ -167,7 +172,7 @@ class Engine:
             previous = self.store.get(vm.id)
             if previous.disk_gb != vm.disk_gb:
                 raise MultilayerError(
-                    "Изменение размера диска пока не поддерживается; создайте новую ВМ"
+                    tr("Изменение размера диска пока не поддерживается; создайте новую ВМ")
                 )
             self.store.save(vm)
 
@@ -264,7 +269,9 @@ class Engine:
             return None
         if sys.platform != "linux":
             raise MultilayerError(
-                "Виртуальный TPM этой версии требует Linux и swtpm; Windows 11 на Windows-хосте пока не поддерживается"
+                tr(
+                    "Виртуальный TPM этой версии требует Linux и swtpm; Windows 11 на Windows-хосте пока не поддерживается"
+                )
             )
         tpm = directory / "tpm"
         tpm.mkdir(exist_ok=True, mode=0o700)
@@ -297,7 +304,7 @@ class Engine:
             time.sleep(0.05)
         process.terminate()
         process.wait(timeout=5)
-        raise MultilayerError("Не удалось запустить TPM; смотрите swtpm.log")
+        raise MultilayerError(tr("Не удалось запустить TPM; смотрите swtpm.log"))
 
     def start(self, identifier: str, headless: bool = False) -> str:
         with self.store.lock(identifier):
@@ -324,9 +331,13 @@ class Engine:
                     try:
                         code = process.wait(timeout=120)
                     except subprocess.TimeoutExpired as exc:
-                        raise MultilayerError("Истёк срок авторизации сетевой политики") from exc
+                        raise MultilayerError(
+                            tr("Истёк срок авторизации сетевой политики")
+                        ) from exc
                     if code != 0:
-                        raise MultilayerError("Запуск systemd/firewall отменён; смотрите qemu.log")
+                        raise MultilayerError(
+                            tr("Запуск systemd/firewall отменён; смотрите qemu.log")
+                        )
                 pid = (
                     int(
                         run(
@@ -361,7 +372,7 @@ class Engine:
                         ):
                             tail = (directory / "qemu.log").read_text(errors="replace")[-2000:]
                             raise MultilayerError(
-                                "QEMU не запущен:\n" + tail + "\nQMP: " + str(exc)
+                                tr("QEMU не запущен:\n") + tail + "\nQMP: " + str(exc)
                             ) from None
                         time.sleep(0.1)
                 self.children[vm.id] = process
@@ -390,7 +401,7 @@ class Engine:
             "reset": "system_reset",
         }
         if action not in commands:
-            raise MultilayerError("Неизвестная команда управления")
+            raise MultilayerError(tr("Неизвестная команда управления"))
         vm = self.store.get(identifier)
         with self.store.lock(identifier):
             try:
@@ -402,7 +413,7 @@ class Engine:
                 runtime = json.loads((self.store.path(identifier) / "runtime.json").read_text())
                 process = psutil.Process(runtime["pid"])
                 if abs(process.create_time() - runtime["created"]) > 0.01:
-                    raise MultilayerError("Процесс ВМ уже завершился") from None
+                    raise MultilayerError(tr("Процесс ВМ уже завершился")) from None
                 try:
                     process.terminate()
                     try:
@@ -411,7 +422,9 @@ class Engine:
                         process.kill()
                         process.wait(timeout=5)
                 except psutil.Error as exc:
-                    raise MultilayerError(f"Не удалось остановить процесс ВМ: {exc}") from exc
+                    raise MultilayerError(
+                        tr("Не удалось остановить процесс ВМ: {value0}", value0=exc)
+                    ) from exc
         if action == "stop":
             deadline = time.monotonic() + 10
             while self.status(identifier) != "stopped" and time.monotonic() < deadline:
@@ -420,19 +433,19 @@ class Engine:
                 try:
                     child.wait(timeout=5)
                 except subprocess.TimeoutExpired as exc:
-                    raise MultilayerError("QEMU ещё завершает работу") from exc
+                    raise MultilayerError(tr("QEMU ещё завершает работу")) from exc
             if tpm := self.tpm_children.pop(identifier, None):
                 try:
                     tpm.wait(timeout=5)
                 except subprocess.TimeoutExpired as exc:
-                    raise MultilayerError("TPM ещё сохраняет состояние") from exc
+                    raise MultilayerError(tr("TPM ещё сохраняет состояние")) from exc
             if self.status(identifier) != "stopped":
-                raise MultilayerError("ВМ ещё завершает работу")
+                raise MultilayerError(tr("ВМ ещё завершает работу"))
 
     def link(self, identifier: str, enabled: bool) -> None:
         vm = self.store.get(identifier)
         if vm.network == "off":
-            raise MultilayerError("У ВМ нет сетевого адаптера")
+            raise MultilayerError(tr("У ВМ нет сетевого адаптера"))
         with self.store.lock(identifier), QMP(self.endpoint(vm)) as qmp:
             qmp.execute("set_link", {"name": "nic0", "up": enabled})
 
@@ -486,13 +499,13 @@ class Engine:
                     run([executable("qemu-img"), "info", "--output=json", image])
                 ).get("snapshots", [])
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,48}", name):
-                raise MultilayerError("Имя снимка: 1–48 латинских букв, цифр, _ или -")
+                raise MultilayerError(tr("Имя снимка: 1–48 латинских букв, цифр, _ или -"))
             if action not in ("create", "restore", "delete"):
-                raise MultilayerError("Неизвестная операция со снимком")
+                raise MultilayerError(tr("Неизвестная операция со снимком"))
             snapshot = directory / "snapshots" / name
             if action == "create":
                 if snapshot.exists():
-                    raise MultilayerError("Снимок уже существует")
+                    raise MultilayerError(tr("Снимок уже существует"))
                 snapshot.mkdir(parents=True, mode=0o700)
                 try:
                     for item in ("uefi-vars.fd", "tpm", "vm.json"):
@@ -507,7 +520,7 @@ class Engine:
                     raise
             else:
                 if not snapshot.is_dir():
-                    raise MultilayerError("Снимок не найден")
+                    raise MultilayerError(tr("Снимок не найден"))
                 run(
                     [
                         executable("qemu-img"),

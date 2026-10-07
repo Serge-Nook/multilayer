@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from multilayer import __version__
+from multilayer.i18n import tr
 from multilayer.model import MultilayerError
 
 TOOLS = {"qemu-img", "qemu-system-x86_64", "swtpm", "ip", "bpftool"}
@@ -38,9 +39,13 @@ def executable(name: str) -> str:
         and (sys.platform == "linux" or name.startswith("qemu-"))
     ):
         raise MultilayerError(
-            f"Встроенный компонент {name} отсутствует в Мультислое {__version__}. "
-            "Закройте старые окна и переустановите свежий дистрибутив целиком. "
-            "Отдельная установка QEMU не требуется."
+            tr(
+                "Встроенный компонент {name} отсутствует в Мультислое {version}. "
+                "Закройте старые окна и переустановите свежий дистрибутив целиком. "
+                "Отдельная установка QEMU не требуется.",
+                name=name,
+                version=__version__,
+            )
         )
     found = shutil.which(name)
     if not found and sys.platform == "linux":
@@ -52,7 +57,10 @@ def executable(name: str) -> str:
             found = str(candidate)
     if not found:
         raise MultilayerError(
-            f"Не найден {name}. Для запуска из исходников установите зависимости и добавьте их в PATH."
+            tr(
+                "Не найден {name}. Для запуска из исходников установите зависимости и добавьте их в PATH.",
+                name=name,
+            )
         )
     return str(Path(found).resolve())
 

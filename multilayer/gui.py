@@ -1,10 +1,20 @@
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import (
+    QLibraryInfo,
+    QObject,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    QTimer,
+    QTranslator,
+    Signal,
+)
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -32,8 +42,10 @@ from PySide6.QtWidgets import (
 )
 
 from multilayer import APP_NAME, AUTHOR, WEBSITE, __version__
+from multilayer.branding import logo_path
 from multilayer.cli import doctor
 from multilayer.engine import Engine
+from multilayer.i18n import LANGUAGES, language, set_language, tr
 from multilayer.maintenance import maintain
 from multilayer.model import GUESTS, NETWORKS, VM, MultilayerError
 from multilayer.store import Store
@@ -46,6 +58,20 @@ STATUS = {
     "shutdown": "Выключение",
     "unreachable": "Нет связи с QEMU",
 }
+
+_translator: QTranslator | None = None
+
+
+def translate_qt(app: QApplication) -> None:
+    global _translator
+    if _translator is not None:
+        app.removeTranslator(_translator)
+    _translator = QTranslator(app)
+    if language() == "ru":
+        bundled = Path(getattr(sys, "_MEIPASS", "")) / "qt-translations"
+        system = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+        if _translator.load("qtbase_ru", str(bundled)) or _translator.load("qtbase_ru", system):
+            app.installTranslator(_translator)
 
 
 class Result(QObject):
@@ -74,14 +100,24 @@ def browse(field: QLineEdit, directory: bool = False) -> QWidget:
     row = QHBoxLayout(widget)
     row.setContentsMargins(0, 0, 0, 0)
     row.addWidget(field)
-    button = QPushButton("Обзор…")
+    button = QPushButton(tr("Обзор…"))
     row.addWidget(button)
 
     def choose() -> None:
         path = (
-            QFileDialog.getExistingDirectory(widget, "Папка обмена", field.text())
+            QFileDialog.getExistingDirectory(
+                widget,
+                tr("Папка обмена"),
+                field.text(),
+                QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontUseNativeDialog,
+            )
             if directory
-            else QFileDialog.getOpenFileName(widget, "Выберите файл", field.text())[0]
+            else QFileDialog.getOpenFileName(
+                widget,
+                tr("Выберите файл"),
+                field.text(),
+                options=QFileDialog.Option.DontUseNativeDialog,
+            )[0]
         )
         if path:
             field.setText(path)
@@ -94,8 +130,10 @@ class VMDialog(QDialog):
     def __init__(self, vm: VM | None = None, parent: QWidget | None = None):
         super().__init__(parent)
         self.original = vm
-        vm = vm or VM(name="Новая виртуальная машина")
-        self.setWindowTitle("Настройки ВМ" if self.original else "Создать виртуальную машину")
+        vm = vm or VM(name=tr("Новая виртуальная машина"))
+        self.setWindowTitle(
+            tr("Настройки ВМ") if self.original else tr("Создать виртуальную машину")
+        )
         self.resize(660, 570)
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -118,7 +156,7 @@ class VMDialog(QDialog):
         def combo(form: QFormLayout, key: str, label: str, choices: list | tuple | dict) -> None:
             field = QComboBox()
             for choice in choices:
-                field.addItem(choices[choice] if isinstance(choices, dict) else choice, choice)
+                field.addItem(tr(choices[choice] if isinstance(choices, dict) else choice), choice)
             field.setCurrentIndex(field.findData(getattr(vm, key)))
             self.fields[key] = field
             form.addRow(label, field)
@@ -130,48 +168,55 @@ class VMDialog(QDialog):
             self.fields[key] = field
             form.addRow(label, field)
 
-        hardware = tab("Оборудование")
-        text(hardware, "name", "Название")
-        combo(hardware, "guest", "Гостевая ОС", GUESTS)
-        spin(hardware, "memory_mb", "Оперативная память, МБ", 256, 1048576)
-        spin(hardware, "cpus", "Процессоры", 1, 256)
-        spin(hardware, "disk_gb", "Диск QCOW2, ГБ", 1, 16384)
+        hardware = tab(tr("Оборудование"))
+        text(hardware, "name", tr("Название"))
+        combo(hardware, "guest", tr("Гостевая ОС"), GUESTS)
+        spin(hardware, "memory_mb", tr("Оперативная память, МБ"), 256, 1048576)
+        spin(hardware, "cpus", tr("Процессоры"), 1, 256)
+        spin(hardware, "disk_gb", tr("Диск QCOW2, ГБ"), 1, 16384)
         self.fields["disk_gb"].setEnabled(self.original is None)
-        combo(hardware, "accelerator", "Ускорение", ("auto", "kvm", "whpx", "tcg"))
-        combo(hardware, "firmware", "Прошивка", {"bios": "BIOS", "uefi": "UEFI"})
+        combo(hardware, "accelerator", tr("Ускорение"), ("auto", "kvm", "whpx", "tcg"))
+        combo(hardware, "firmware", tr("Прошивка"), {"bios": "BIOS", "uefi": "UEFI"})
         for key, label in (
-            ("tpm", "TPM 2.0 (Linux, встроенный swtpm)"),
-            ("secure_boot", "Secure Boot (прошивка с ключами Microsoft)"),
+            ("tpm", tr("TPM 2.0 (Linux, встроенный swtpm)")),
+            ("secure_boot", tr("Secure Boot (прошивка с ключами Microsoft)")),
         ):
             field = QCheckBox(label)
             field.setChecked(getattr(vm, key))
             self.fields[key] = field
             hardware.addRow(field)
 
-        media = tab("ISO и обмен")
-        text(media, "iso", "Установочный ISO", picker=True)
-        text(media, "drivers_iso", "ISO драйверов", picker=True)
+        media = tab(tr("ISO и обмен"))
+        text(media, "iso", tr("Установочный ISO"), picker=True)
+        text(media, "drivers_iso", tr("ISO драйверов"), picker=True)
         combo(
-            media, "boot", "Первое устройство загрузки", {"dvd": "Виртуальный DVD", "disk": "Диск"}
+            media,
+            "boot",
+            tr("Первое устройство загрузки"),
+            {"dvd": tr("Виртуальный DVD"), "disk": tr("Диск")},
         )
-        text(media, "shared_folder", "Папка обмена", picker=True, directory=True)
+        text(media, "shared_folder", tr("Папка обмена"), picker=True, directory=True)
         note = QLabel(
-            "Папка доступна гостю как дополнительный DVD только для чтения.\nСодержимое обновляется при запуске ВМ. Для обновления выключите ВМ и запустите снова.\nСимволические ссылки не копируются; лимит — 8 ГБ."
+            tr(
+                "Папка доступна гостю как дополнительный DVD только для чтения.\nСодержимое обновляется при запуске ВМ. Для обновления выключите ВМ и запустите снова.\nСимволические ссылки не копируются; лимит — 8 ГБ."
+            )
         )
         note.setWordWrap(True)
         media.addRow(note)
-        text(media, "firmware_code", "UEFI CODE (необязательно)", picker=True)
-        text(media, "firmware_vars", "UEFI VARS (необязательно)", picker=True)
+        text(media, "firmware_code", tr("UEFI CODE (необязательно)"), picker=True)
+        text(media, "firmware_vars", tr("UEFI VARS (необязательно)"), picker=True)
 
-        network = tab("Сеть")
-        combo(network, "network", "Режим", NETWORKS)
-        combo(network, "nic", "Модель адаптера", ("e1000", "virtio-net-pci", "rtl8139"))
-        text(network, "tap", "Существующий TAP")
-        text(network, "dns", "Публичный DNS (только интернет)")
+        network = tab(tr("Сеть"))
+        combo(network, "network", tr("Режим"), NETWORKS)
+        combo(network, "nic", tr("Модель адаптера"), ("e1000", "virtio-net-pci", "rtl8139"))
+        text(network, "tap", tr("Существующий TAP"))
+        text(network, "dns", tr("Публичный DNS (только интернет)"))
         self.cidrs = QLineEdit(", ".join(vm.lan_cidrs))
-        network.addRow("Дополнительные LAN подсети", self.cidrs)
+        network.addRow(tr("Дополнительные LAN подсети"), self.cidrs)
         help_label = QLabel(
-            "NAT разрешает и интернет, и LAN. Изоляция запрещает внешние соединения.\nРаздельный доступ требует Linux, systemd/cgroup v2, bpftool и авторизации polkit.\nФильтры проверяются до включения CPU ВМ. Без подтверждённого firewall запуск отменяется.\nРежим «только LAN» использует NAT: входящие подключения и обнаружение LAN не доступны.\nДля полноценного присутствия в LAN используйте заранее настроенный TAP/мост."
+            tr(
+                "NAT разрешает и интернет, и LAN. Изоляция запрещает внешние соединения.\nРаздельный доступ требует Linux, systemd/cgroup v2, bpftool и авторизации polkit.\nФильтры проверяются до включения CPU ВМ. Без подтверждённого firewall запуск отменяется.\nРежим «только LAN» использует NAT: входящие подключения и обнаружение LAN не доступны.\nДля полноценного присутствия в LAN используйте заранее настроенный TAP/мост."
+            )
         )
         help_label.setWordWrap(True)
         network.addRow(help_label)
@@ -215,7 +260,7 @@ class VMDialog(QDialog):
             self.value()
             super().accept()
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Проверьте настройки", str(exc))
+            QMessageBox.warning(self, tr("Проверьте настройки"), str(exc))
 
 
 class Window(QMainWindow):
@@ -226,28 +271,44 @@ class Window(QMainWindow):
         self.refreshing = False
         self.workers: set[Worker] = set()
         self.rows: list[VM] = []
-        self.setWindowTitle(f"{APP_NAME} {__version__} — виртуальные машины")
+        self.cached_rows: list = []
+        self.build_ui()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.refresh)
+        self.timer.start(2500)
+        self.refresh()
+
+    def build_ui(self) -> None:
+        self.setWindowTitle(
+            tr("{value0} {value1} — виртуальные машины", value0=tr(APP_NAME), value1=__version__)
+        )
         self.resize(1100, 720)
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
-        title = QLabel("МУЛЬТИСЛОЙ")
+        heading = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(QIcon(str(logo_path())).pixmap(56, 56))
+        heading.addWidget(logo)
+        title = QLabel(tr("МУЛЬТИСЛОЙ"))
         title.setStyleSheet("font-size: 25px; font-weight: 700; padding: 8px 0;")
-        layout.addWidget(title)
-        subtitle = QLabel("Локальные виртуальные машины · QEMU / KVM / WHPX")
+        heading.addWidget(title)
+        heading.addStretch()
+        layout.addLayout(heading)
+        subtitle = QLabel(tr("Локальные виртуальные машины · QEMU / KVM / WHPX"))
         layout.addWidget(subtitle)
         toolbar = QHBoxLayout()
         layout.addLayout(toolbar)
         self.buttons = {}
         for label, operation in (
-            ("Создать", self.create_vm),
-            ("Настройки", self.edit),
-            ("Запустить", lambda: self.control("start")),
-            ("Выключить ОС", lambda: self.control("shutdown")),
-            ("Пауза", lambda: self.control("pause")),
-            ("Продолжить", lambda: self.control("resume")),
-            ("Остановить", lambda: self.control("stop")),
-            ("Перезагрузить", lambda: self.control("reset")),
+            (tr("Создать"), self.create_vm),
+            (tr("Настройки"), self.edit),
+            (tr("Запустить"), lambda: self.control("start")),
+            (tr("Выключить ОС"), lambda: self.control("shutdown")),
+            (tr("Пауза"), lambda: self.control("pause")),
+            (tr("Продолжить"), lambda: self.control("resume")),
+            (tr("Остановить"), lambda: self.control("stop")),
+            (tr("Перезагрузить"), lambda: self.control("reset")),
         ):
             button = QPushButton(label)
             button.clicked.connect(operation)
@@ -257,7 +318,7 @@ class Window(QMainWindow):
         layout.addWidget(splitter)
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Виртуальная машина", "Гостевая ОС", "Состояние", "RAM", "CPU", "Сеть"]
+            [tr("Виртуальная машина"), tr("Гостевая ОС"), tr("Состояние"), "RAM", "CPU", tr("Сеть")]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -272,37 +333,64 @@ class Window(QMainWindow):
         actions = QHBoxLayout()
         layout.addLayout(actions)
         for label, callback in (
-            ("Клонировать", self.clone),
-            ("Снимки диска", self.snapshots),
-            ("Отключить кабель", lambda: self.cable(False)),
-            ("Подключить кабель", lambda: self.cable(True)),
-            ("Журнал QEMU", self.log),
-            ("Удалить ВМ", self.delete),
+            (tr("Импорт"), self.import_vm),
+            (tr("Экспорт"), self.export_vm),
+            (tr("Клонировать"), self.clone),
+            (tr("Снимки диска"), self.snapshots),
+            (tr("Отключить кабель"), lambda: self.cable(False)),
+            (tr("Подключить кабель"), lambda: self.cable(True)),
+            (tr("Журнал QEMU"), self.log),
+            (tr("Удалить ВМ"), self.delete),
         ):
             button = QPushButton(label)
             button.clicked.connect(callback)
             actions.addWidget(button)
             self.buttons[label] = button
-        for label, callback in (
-            ("Диагностика", self.diagnostic),
-            ("Установка / удаление", self.maintenance),
-            ("О программе", self.about),
-        ):
-            action = QAction(label, self)
-            action.triggered.connect(callback)
-            self.menuBar().addAction(action)
+        self.menuBar().clear()
+        diagnostic = self.menuBar().addAction(tr("Диагностика"))
+        diagnostic.triggered.connect(self.diagnostic)
+        languages = self.menuBar().addMenu(tr("Язык"))
+        for code, label in LANGUAGES.items():
+            action = languages.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(language() == code)
+            action.triggered.connect(
+                lambda checked=False, selected=code: self.change_language(selected)
+            )
+        about = self.menuBar().addAction(tr("О программе"))
+        about.triggered.connect(self.about)
         self.statusBar().showMessage(
-            "ВМ сохраняются отдельно от приложения. По умолчанию сеть отключена."
+            tr("ВМ сохраняются отдельно от приложения. По умолчанию сеть отключена.")
         )
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.refresh)
-        self.timer.start(2500)
-        self.refresh()
+
+    def change_language(self, code: str) -> None:
+        if self.busy:
+            QMessageBox.warning(
+                self,
+                tr("Операция выполняется"),
+                tr("Дождитесь завершения операции перед закрытием."),
+            )
+            return
+        try:
+            set_language(code)
+        except OSError as exc:
+            QMessageBox.warning(self, tr("Язык"), str(exc))
+            return
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            translate_qt(app)
+        current = self.table.currentRow()
+        identifier = self.rows[current].id if 0 <= current < len(self.rows) else None
+        self.build_ui()
+        self.render_rows(self.cached_rows)
+        for row, vm in enumerate(self.rows):
+            if vm.id == identifier:
+                self.table.selectRow(row)
 
     def selected(self) -> VM:
         row = self.table.currentRow()
         if row < 0 or row >= len(self.rows):
-            raise MultilayerError("Выберите виртуальную машину")
+            raise MultilayerError(tr("Выберите виртуальную машину"))
         return self.rows[row]
 
     def perform(self, operation: Callable, callback: Callable | None = None) -> None:
@@ -311,16 +399,16 @@ class Window(QMainWindow):
         self.busy = True
         for button in self.buttons.values():
             button.setEnabled(False)
-        self.statusBar().showMessage("Выполняется операция…")
+        self.statusBar().showMessage(tr("Выполняется операция…"))
         worker = Worker(operation)
         self.workers.add(worker)
 
         def failed(message: str) -> None:
-            self.statusBar().showMessage("Ошибка: " + message)
-            QMessageBox.critical(self, "Ошибка", message)
+            self.statusBar().showMessage(tr("Ошибка: ") + message)
+            QMessageBox.critical(self, tr("Ошибка"), message)
 
         def succeeded(value: Any) -> None:
-            self.statusBar().showMessage("Готово")
+            self.statusBar().showMessage(tr("Готово"))
             if callback:
                 callback(value)
 
@@ -356,6 +444,7 @@ class Window(QMainWindow):
         QThreadPool.globalInstance().start(worker)
 
     def render_rows(self, rows: list) -> None:
+        self.cached_rows = rows
         selected = (
             self.rows[self.table.currentRow()].id
             if 0 <= self.table.currentRow() < len(self.rows)
@@ -367,11 +456,11 @@ class Window(QMainWindow):
         for row, (vm, status) in enumerate(rows):
             values = (
                 vm.name,
-                vm.guest,
-                STATUS.get(status, status),
-                f"{vm.memory_mb} МБ",
+                tr(vm.guest),
+                tr(STATUS.get(status, status)),
+                tr("{value0} МБ", value0=vm.memory_mb),
                 str(vm.cpus),
-                NETWORKS[vm.network],
+                tr(NETWORKS[vm.network]),
             )
             for column, value in enumerate(values):
                 self.table.setItem(row, column, QTableWidgetItem(value))
@@ -387,13 +476,21 @@ class Window(QMainWindow):
         try:
             vm = self.selected()
             self.details.setPlainText(
-                f"{vm.name}\nID: {vm.id}\nISO: {vm.iso or 'не подключён'}\n"
-                f"Ускорение: {vm.accelerator} · Прошивка: {vm.firmware} · TPM: {'да' if vm.tpm else 'нет'}\n"
-                f"Обмен: {vm.shared_folder or 'не подключён'} (только чтение)\nДанные: {self.engine.store.path(vm.id)}"
+                tr(
+                    "{value0}\nID: {value1}\nISO: {value2}\nУскорение: {value3} · Прошивка: {value4} · TPM: {value5}\nОбмен: {value6} (только чтение)\nДанные: {value7}",
+                    value0=vm.name,
+                    value1=vm.id,
+                    value2=vm.iso or tr("не подключён"),
+                    value3=vm.accelerator,
+                    value4=vm.firmware,
+                    value5=tr("да") if vm.tpm else tr("нет"),
+                    value6=vm.shared_folder or tr("не подключён"),
+                    value7=self.engine.store.path(vm.id),
+                )
             )
         except MultilayerError:
             self.details.setPlainText(
-                "Создайте виртуальную машину, выберите ISO и запустите установку ОС."
+                tr("Создайте виртуальную машину, выберите ISO и запустите установку ОС.")
             )
 
     def create_vm(self) -> None:
@@ -410,13 +507,13 @@ class Window(QMainWindow):
                 updated = dialog.value()
                 self.perform(lambda: self.engine.update(updated))
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Настройки", str(exc))
+            QMessageBox.warning(self, tr("Настройки"), str(exc))
 
     def confirm(self, text: str) -> bool:
         return (
             QMessageBox.question(
                 self,
-                "Подтверждение",
+                tr("Подтверждение"),
                 text,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
@@ -428,101 +525,110 @@ class Window(QMainWindow):
         try:
             vm = self.selected()
             if action == "stop" and not self.confirm(
-                "Принудительно остановить ВМ? Несохранённые данные гостевой ОС могут быть потеряны."
+                tr(
+                    "Принудительно остановить ВМ? Несохранённые данные гостевой ОС могут быть потеряны."
+                )
             ):
                 return
             if action == "reset" and not self.confirm(
-                "Перезагрузить ВМ немедленно? Несохранённые данные гостевой ОС могут быть потеряны."
+                tr(
+                    "Перезагрузить ВМ немедленно? Несохранённые данные гостевой ОС могут быть потеряны."
+                )
             ):
                 return
             if action == "start":
                 self.perform(
                     lambda: self.engine.start(vm.id),
                     lambda accel: self.statusBar().showMessage(
-                        f"ВМ запущена: {accel}. Консоль — в отдельном окне QEMU."
+                        tr("ВМ запущена: {value0}. Консоль — в отдельном окне QEMU.", value0=accel)
                     ),
                 )
             else:
                 self.perform(lambda: self.engine.control(vm.id, action))
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Управление", str(exc))
+            QMessageBox.warning(self, tr("Управление"), str(exc))
 
     def cable(self, enabled: bool) -> None:
         try:
             vm = self.selected()
             self.perform(lambda: self.engine.link(vm.id, enabled))
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Сеть", str(exc))
+            QMessageBox.warning(self, tr("Сеть"), str(exc))
 
     def clone(self) -> None:
         try:
             vm = self.selected()
             name, accepted = QInputDialog.getText(
-                self, "Клонировать", "Название копии", text=vm.name + " — копия"
+                self, tr("Клонировать"), tr("Название копии"), text=vm.name + tr(" — копия")
             )
             if accepted and name.strip():
                 self.perform(lambda: self.engine.clone(vm.id, name.strip()))
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Клонировать", str(exc))
+            QMessageBox.warning(self, tr("Клонировать"), str(exc))
 
     def snapshots(self) -> None:
         try:
             vm = self.selected()
             action, accepted = QInputDialog.getItem(
                 self,
-                "Снимки диска",
-                "Выберите действие (ВМ должна быть выключена)",
-                ["Список", "Создать", "Восстановить", "Удалить"],
+                tr("Снимки диска"),
+                tr("Выберите действие (ВМ должна быть выключена)"),
+                [tr("Список"), tr("Создать"), tr("Восстановить"), tr("Удалить")],
                 editable=False,
             )
             if not accepted:
                 return
             operation = {
-                "Список": "list",
-                "Создать": "create",
-                "Восстановить": "restore",
-                "Удалить": "delete",
+                tr("Список"): "list",
+                tr("Создать"): "create",
+                tr("Восстановить"): "restore",
+                tr("Удалить"): "delete",
             }[action]
             name = ""
             if operation != "list":
                 name, accepted = QInputDialog.getText(
-                    self, action, "Имя снимка: латинские буквы, цифры, _ или -"
+                    self, action, tr("Имя снимка: латинские буквы, цифры, _ или -")
                 )
                 if not accepted:
                     return
             if operation in ("restore", "delete") and not self.confirm(
-                "Изменения после снимка/снимок будут потеряны. Продолжить?"
+                tr("Изменения после снимка/снимок будут потеряны. Продолжить?")
             ):
                 return
             self.perform(
                 lambda: self.engine.snapshot(vm.id, operation, name),
                 lambda data: QMessageBox.information(
-                    self, "Снимки диска", json.dumps(data, ensure_ascii=False, indent=2)
+                    self, tr("Снимки диска"), json.dumps(data, ensure_ascii=False, indent=2)
                 )
                 if operation == "list"
                 else None,
             )
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Снимки", str(exc))
+            QMessageBox.warning(self, tr("Снимки"), str(exc))
 
     def delete(self) -> None:
         try:
             vm = self.selected()
             if self.confirm(
-                f"Удалить «{vm.name}» вместе с диском и снимками? Отменить удаление нельзя."
+                tr(
+                    "Удалить «{value0}» вместе с диском и снимками? Отменить удаление нельзя.",
+                    value0=vm.name,
+                )
             ):
                 self.perform(lambda: self.engine.delete(vm.id))
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Удаление", str(exc))
+            QMessageBox.warning(self, tr("Удаление"), str(exc))
 
     def log(self) -> None:
         try:
             path = self.engine.store.path(self.selected().id) / "qemu.log"
             self.details.setPlainText(
-                path.read_text(errors="replace")[-20000:] if path.exists() else "Журнал пока пуст"
+                path.read_text(errors="replace")[-20000:]
+                if path.exists()
+                else tr("Журнал пока пуст")
             )
         except MultilayerError as exc:
-            QMessageBox.warning(self, "Журнал", str(exc))
+            QMessageBox.warning(self, tr("Журнал"), str(exc))
 
     def diagnostic(self) -> None:
         self.details.setPlainText(json.dumps(doctor(), ensure_ascii=False, indent=2))
@@ -530,17 +636,69 @@ class Window(QMainWindow):
     def maintenance(self) -> None:
         Maintenance(self).exec()
 
-    def about(self) -> None:
-        QMessageBox.about(
+    def export_vm(self) -> None:
+        from multilayer.portable import export_vm
+
+        try:
+            vm = self.selected()
+            self.engine.require_stopped(vm)
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                tr("Экспорт ВМ"),
+                vm.name + ".multis",
+                tr("Мультислой (*.multis)"),
+                options=QFileDialog.Option.DontUseNativeDialog,
+            )
+            if not filename:
+                return
+            path = Path(filename)
+            if path.suffix.lower() != ".multis":
+                path = Path(filename + ".multis")
+                if path.exists() and not self.confirm(tr("Файл уже существует. Заменить?")):
+                    return
+            if not self.confirm(
+                tr(
+                    "Экспорт содержит диск, настройки, снимки и UEFI/TPM, включая секреты гостевой ОС. ISO и внешняя папка обмена не включаются. Храните архив в безопасном месте. Продолжить?"
+                )
+            ):
+                return
+            self.perform(
+                lambda: export_vm(self.engine, vm.id, path, overwrite=True),
+                lambda result: QMessageBox.information(self, tr("Экспорт ВМ"), str(result)),
+            )
+        except (MultilayerError, OSError) as exc:
+            QMessageBox.warning(self, tr("Экспорт ВМ"), str(exc))
+
+    def import_vm(self) -> None:
+        from multilayer.portable import import_vm
+
+        filename, _ = QFileDialog.getOpenFileName(
             self,
-            "О программе",
-            f"{APP_NAME} {__version__}\nАвтор: {AUTHOR}\n{WEBSITE}\nQEMU/KVM в Linux; QEMU/WHPX в Windows.\nЭто первая версия, не замена всему функционалу Proxmox.",
+            tr("Импорт ВМ"),
+            "",
+            tr("Мультислой (*.multis)"),
+            options=QFileDialog.Option.DontUseNativeDialog,
         )
+        if not filename or not self.confirm(
+            tr(
+                "Будет добавлена выключенная ВМ без замены существующих. ISO и папку обмена подключите заново. Ускорение выбирается автоматически; сетевые настройки и TPM сохраняются и могут требовать Linux. Импортируйте только доверенные архивы. Продолжить?"
+            )
+        ):
+            return
+        self.perform(
+            lambda: import_vm(self.engine, Path(filename)),
+            lambda vm: QMessageBox.information(self, tr("Импорт ВМ"), vm.name),
+        )
+
+    def about(self) -> None:
+        About(self).exec()
 
     def closeEvent(self, event: Any) -> None:
         if self.busy:
             QMessageBox.warning(
-                self, "Операция выполняется", "Дождитесь завершения операции перед закрытием."
+                self,
+                tr("Операция выполняется"),
+                tr("Дождитесь завершения операции перед закрытием."),
             )
             event.ignore()
             return
@@ -549,28 +707,61 @@ class Window(QMainWindow):
         event.accept()
 
 
+class About(QDialog):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("О программе"))
+        self.resize(500, 280)
+        layout = QVBoxLayout(self)
+        icon = QLabel()
+        icon.setPixmap(QIcon(str(logo_path())).pixmap(72, 72))
+        layout.addWidget(icon)
+        layout.addWidget(QLabel(tr(APP_NAME) + " " + __version__))
+        layout.addWidget(QLabel(tr("Автор: {author}", author=tr(AUTHOR))))
+        link = QLabel(f'<a href="{WEBSITE}">{WEBSITE}</a>')
+        link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        link.setOpenExternalLinks(True)
+        layout.addWidget(link)
+        description = QLabel(
+            tr(
+                "Эта программа разрабатывалась для SteamOS, полностью бесплатна для коммерческого и некоммерческого использования."
+            )
+        )
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        maintenance = QPushButton(tr("Установка / удаление"))
+        maintenance.clicked.connect(lambda: Maintenance(self).exec())
+        layout.addWidget(maintenance)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class Maintenance(QDialog):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setWindowTitle(f"Мультислой {__version__} — установка")
+        self.setWindowTitle(tr("Мультислой {value0} — установка", value0=__version__))
         self.resize(460, 260)
         layout = QVBoxLayout(self)
         label = QLabel(
-            f"Мультислой {__version__}\nУстановить/обновить приложение или удалить его.\nВиртуальные машины и их диски сохраняются. Закройте окна прежней версии перед обновлением."
+            tr(
+                "Мультислой {value0}\nУстановить/обновить приложение или удалить его.\nВиртуальные машины и их диски сохраняются. Закройте окна прежней версии перед обновлением.",
+                value0=__version__,
+            )
         )
         label.setWordWrap(True)
         layout.addWidget(label)
         self.buttons = []
         self.worker: Worker | None = None
         for title, action in (
-            ("Установить / обновить", "install"),
-            ("Удалить приложение", "remove"),
+            (tr("Установить / обновить"), "install"),
+            (tr("Удалить приложение"), "remove"),
         ):
             button = QPushButton(title)
             button.clicked.connect(lambda checked=False, operation=action: self.execute(operation))
             layout.addWidget(button)
             self.buttons.append(button)
-        button = QPushButton("Выйти")
+        button = QPushButton(tr("Выйти"))
         button.clicked.connect(self.reject)
         layout.addWidget(button)
         self.buttons.append(button)
@@ -578,7 +769,9 @@ class Maintenance(QDialog):
     def execute(self, action: str) -> None:
         if (
             action == "remove"
-            and QMessageBox.question(self, "Удалить приложение?", "Виртуальные машины сохранятся.")
+            and QMessageBox.question(
+                self, tr("Удалить приложение?"), tr("Виртуальные машины сохранятся.")
+            )
             != QMessageBox.StandardButton.Yes
         ):
             return
@@ -587,12 +780,14 @@ class Maintenance(QDialog):
         self.worker = Worker(lambda: maintain(action))
 
         def success(text: str) -> None:
-            QMessageBox.information(self, "Установка", text)
+            QMessageBox.information(self, tr("Установка"), text)
             if action == "install":
                 self.accept()
 
         self.worker.signals.done.connect(success)
-        self.worker.signals.error.connect(lambda text: QMessageBox.critical(self, "Ошибка", text))
+        self.worker.signals.error.connect(
+            lambda text: QMessageBox.critical(self, tr("Ошибка"), text)
+        )
 
         def complete() -> None:
             for button in self.buttons:
@@ -603,9 +798,14 @@ class Maintenance(QDialog):
 
 
 def launch(home: Path | None = None, maintenance: bool = False) -> int:
-    app = QApplication.instance() or QApplication([])
-    app.setApplicationName(APP_NAME)
+    app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        app = QApplication([])
+    app.setApplicationName("Multilayer")
+    app.setWindowIcon(QIcon(str(logo_path())))
+    app.setDesktopFileName("multilayer")
     app.setOrganizationName("nookbat.ru")
+    translate_qt(app)
     if maintenance:
         dialog = Maintenance()
         if not dialog.exec():
