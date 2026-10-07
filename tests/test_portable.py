@@ -158,6 +158,11 @@ class PortableTests(unittest.TestCase):
             self.build_archive()
         self.assertIsNotNone(import_vm(self.target, self.file))
 
+    def test_export_sync_uses_writable_descriptor_for_windows_commit(self):
+        with patch("multilayer.portable.os.fsync", side_effect=lambda fd: os.write(fd, b"")):
+            self.build_archive()
+        self.assertIsNotNone(import_vm(self.target, self.file))
+
     def test_path_traversal_absolute_paths_reserved_names_and_case_collisions_rejected(self):
         for name in (
             "../escape",

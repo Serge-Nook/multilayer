@@ -168,7 +168,7 @@ def export_vm(engine: Engine, identifier: str, destination: Path, overwrite: boo
                 if len(encoded) > MANIFEST_LIMIT:
                     raise fail()
                 archive.writestr("manifest.json", encoded)
-            with Path(temporary).open("rb") as handle:
+            with Path(temporary).open("r+b") as handle:
                 os.fsync(handle.fileno())
             if overwrite:
                 os.replace(temporary, destination)
